@@ -346,17 +346,17 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Storage / USB Status Badge */}
+        {/* Storage / Deployment Mode Badge */}
         <div className="p-3 m-3 border border-slate-800 rounded-xl bg-slate-900/80 space-y-2 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 flex items-center gap-1.5 font-medium">
               <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-              {storage?.is_usb_portable ? 'Portable USB' : 'Local Storage'}
+              {storage?.mode === 'Portable' ? 'Portable Mode (USB)' : 'Installed Mode'}
             </span>
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           </div>
-          <p className="text-[10px] text-slate-400 font-mono truncate" title={storage?.db_path}>
-            {storage?.db_path}
+          <p className="text-[10px] text-slate-400 font-mono truncate" title={storage?.database_path}>
+            {storage?.database_path}
           </p>
           <div className="flex gap-1.5 pt-1">
             <button
@@ -1091,15 +1091,31 @@ export default function App() {
               </div>
 
               <div className="border border-slate-800 rounded-xl bg-slate-900/60 p-5 space-y-4">
-                <h3 className="text-sm font-semibold text-slate-200">Database Storage Health</h3>
+                <h3 className="text-sm font-semibold text-slate-200">Centralized Storage & Path Manager</h3>
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-800">
-                    <span className="text-slate-400">Database File</span>
-                    <span className="font-mono text-slate-200">{storage?.db_path}</span>
+                    <span className="text-slate-400">Deployment Architecture</span>
+                    <span className="text-emerald-400 font-semibold">{storage?.mode === 'Portable' ? 'Portable Mode (USB / Dynamic Root)' : 'Installed Mode (Local User AppData)'}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800">
-                    <span className="text-slate-400">Operating Mode</span>
-                    <span className="text-emerald-400 font-semibold">{storage?.is_usb_portable ? 'Portable USB Mode' : 'Local Disk Mode'}</span>
+                    <span className="text-slate-400">Application Root</span>
+                    <span className="font-mono text-slate-200">{storage?.application_root}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Data Directory</span>
+                    <span className="font-mono text-slate-200">{storage?.data_directory}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">SQLite Database</span>
+                    <span className="font-mono text-slate-200">{storage?.database_path}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Documents Root (Relative Vouchers)</span>
+                    <span className="font-mono text-slate-200">{storage?.documents_directory}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800">
+                    <span className="text-slate-400">Backups Directory</span>
+                    <span className="font-mono text-slate-200">{storage?.backups_directory}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800">
                     <span className="text-slate-400">Connection State</span>

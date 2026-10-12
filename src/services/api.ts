@@ -102,9 +102,18 @@ export interface TrialBalanceEntry {
   net_balance: number;
 }
 
+export type DeploymentMode = "Installed" | "Portable";
+
 export interface StorageInfo {
-  base_path: string;
-  db_path: string;
+  mode: DeploymentMode;
+  application_root: string;
+  data_directory: string;
+  database_path: string;
+  documents_directory: string;
+  backups_directory: string;
+  config_directory: string;
+  logs_directory: string;
+  temp_directory: string;
   is_usb_portable: boolean;
   is_connected: boolean;
   last_checked: string;
@@ -156,6 +165,7 @@ export const api = {
   getStorageStatus: () => invoke<StorageInfo>("get_storage_status"),
   backupDatabase: () => invoke<string>("backup_database"),
   safeEject: () => invoke<string>("safe_eject"),
+  resolveDocumentPath: (relativePath: string) => invoke<string>("resolve_document_path", { relativePath }),
   getCompany: () => invoke<Company | null>("get_company"),
   saveCompany: (company: Company) => invoke<Company>("save_company", { company }),
   listCustomers: (companyId: string) => invoke<Customer[]>("list_customers", { companyId }),

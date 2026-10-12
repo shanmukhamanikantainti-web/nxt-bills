@@ -4,13 +4,13 @@ use tauri::State;
 use uuid::Uuid;
 use chrono::Local;
 use crate::models::*;
-use crate::storage::{StorageInfo, StorageManager};
+use crate::storage::{StorageInfo, PathManager};
 use crate::accounting;
 use crate::inventory;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
-    pub storage: Mutex<StorageManager>,
+    pub storage: Mutex<PathManager>,
 }
 
 #[tauri::command]
@@ -32,6 +32,13 @@ pub fn safe_eject(state: State<'_, AppState>) -> Result<String, String> {
     let mgr = state.storage.lock().map_err(|e| e.to_string())?;
     mgr.safe_eject(&conn)?;
     Ok("Storage flushed and ready for safe removal".to_string())
+}
+
+#[tauri::command]
+pub fn resolve_document_path(state: State<'_, AppState>, relative_path: String) -> Result<String, String> {
+    let mgr = state.storage.lock().map_err(|e| e.to_string())?;
+    let full_path = mgr.resolve_document_path(&relative_path)?;
+    Ok(full_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
