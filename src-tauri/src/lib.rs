@@ -1,0 +1,48 @@
+mod models;
+mod db;
+mod accounting;
+mod inventory;
+mod storage;
+mod commands;
+#[cfg(test)]
+mod tests;
+
+use std::sync::Mutex;
+use rusqlite::Connection;
+use storage::StorageManager;
+use commands::AppState;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let storage_mgr = StorageManager::new();
+    let db_path = storage_mgr.get_db_path();
+
+    let conn = Connection::open(&db_path).expect("Failed to open SQLite company database");
+    db::run_migrations(&conn).expect("Failed to run SQLite database migrations");
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_log::Builder::new().build())
+        .manage(AppState {
+            db: Mutex::new(conn),
+            storage: Mutex::new(storage_mgr),
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_storage_status,
+            commands::backup_database,
+            commands::safe_eject,
+            commands::get_company,
+            commands::save_company,
+            commands::list_customers,
+            commands::create_customer,
+            commands::list_suppliers,
+            commands::create_supplier,
+            commands::list_products,
+            commands::create_product,
+            commands::post_sale,
+            commands::post_purchase,
+            commands::get_dashboard_metrics,
+            commands::get_trial_balance
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running SDL ACC desktop application");
+}
