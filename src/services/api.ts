@@ -111,12 +111,100 @@ export interface StorageInfo {
   database_path: string;
   documents_directory: string;
   backups_directory: string;
+  imports_directory: string;
+  exports_directory: string;
   config_directory: string;
   logs_directory: string;
   temp_directory: string;
   is_usb_portable: boolean;
   is_connected: boolean;
   last_checked: string;
+}
+
+export interface PackageFileEntry {
+  path: string;
+  sha256: string;
+  size_bytes: number;
+}
+
+export interface TransferManifest {
+  manifest_version: string;
+  app_version: string;
+  schema_version: number;
+  package_version: string;
+  company_id?: string;
+  company_name?: string;
+  created_at: string;
+  files: PackageFileEntry[];
+}
+
+export interface ValidationResult {
+  is_valid: boolean;
+  manifest?: TransferManifest;
+  checks: string[];
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ExportPackageResult {
+  success: boolean;
+  export_path: string;
+  manifest: TransferManifest;
+  message: string;
+}
+
+export interface ImportPackageResult {
+  success: boolean;
+  safety_backup_path?: string;
+  message: string;
+}
+
+export interface LegacyCustomerRow {
+  name: string;
+  code?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  tax_number?: string;
+  opening_balance?: number;
+}
+
+export interface LegacySupplierRow {
+  name: string;
+  code?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  tax_number?: string;
+  opening_balance?: number;
+}
+
+export interface LegacyProductRow {
+  name: string;
+  code?: string;
+  purchase_price?: number;
+  selling_price?: number;
+  opening_stock?: number;
+  tax_rate_bps?: number;
+}
+
+export interface LegacyImportPayload {
+  company_id: string;
+  customers: LegacyCustomerRow[];
+  suppliers: LegacySupplierRow[];
+  products: LegacyProductRow[];
+}
+
+export interface ImportSummaryReport {
+  total_processed: number;
+  imported_successfully: number;
+  warnings_count: number;
+  rejected_count: number;
+  customers_imported: number;
+  suppliers_imported: number;
+  products_imported: number;
+  warnings: string[];
+  rejected_details: string[];
 }
 
 export interface SalesItemInput {
@@ -166,6 +254,10 @@ export const api = {
   backupDatabase: () => invoke<string>("backup_database"),
   safeEject: () => invoke<string>("safe_eject"),
   resolveDocumentPath: (relativePath: string) => invoke<string>("resolve_document_path", { relativePath }),
+  exportTransferPackage: (targetDir: string) => invoke<ExportPackageResult>("export_transfer_package", { targetDir }),
+  validateTransferPackage: (packageDir: string) => invoke<ValidationResult>("validate_transfer_package", { packageDir }),
+  importTransferPackage: (packageDir: string) => invoke<ImportPackageResult>("import_transfer_package", { packageDir }),
+  importLegacyData: (payload: LegacyImportPayload) => invoke<ImportSummaryReport>("import_legacy_data", { payload }),
   getCompany: () => invoke<Company | null>("get_company"),
   saveCompany: (company: Company) => invoke<Company>("save_company", { company }),
   listCustomers: (companyId: string) => invoke<Customer[]>("list_customers", { companyId }),

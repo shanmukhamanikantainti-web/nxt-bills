@@ -4,6 +4,8 @@ mod accounting;
 mod inventory;
 mod storage;
 mod commands;
+pub mod transfer;
+pub mod importer;
 #[cfg(test)]
 mod tests;
 
@@ -31,6 +33,10 @@ pub fn run() {
             commands::backup_database,
             commands::safe_eject,
             commands::resolve_document_path,
+            commands::export_transfer_package,
+            commands::validate_transfer_package,
+            commands::import_transfer_package,
+            commands::import_legacy_data,
             commands::get_company,
             commands::save_company,
             commands::list_customers,

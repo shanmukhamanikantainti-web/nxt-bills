@@ -81,7 +81,7 @@ mod tests {
         let portable_mgr = PathManager::init_with_mode(temp_usb_dir.clone(), true);
         assert_eq!(portable_mgr.mode(), &DeploymentMode::Portable);
         assert_eq!(portable_mgr.data_directory(), temp_usb_dir.join("Data"));
-        assert_eq!(portable_mgr.database_path(), temp_usb_dir.join("Data").join("company.sqlite"));
+        assert_eq!(portable_mgr.database_path(), temp_usb_dir.join("Data").join("Database").join("company.sqlite"));
 
         // 2. Test Installed Mode
         let app_dir = PathBuf::from("C:\\Program Files\\SDL_ACC");
@@ -92,7 +92,7 @@ mod tests {
 
         // 3. Test relative document path resolution and traversal prevention
         let sales_doc = portable_mgr.resolve_document_path("Sales/INV001.pdf").unwrap();
-        assert_eq!(sales_doc, temp_usb_dir.join("Documents").join("Sales/INV001.pdf"));
+        assert_eq!(sales_doc, temp_usb_dir.join("Data").join("Documents").join("Sales/INV001.pdf"));
 
         // Path traversal must be rejected
         let traversal = portable_mgr.resolve_document_path("../secret.key");
@@ -107,8 +107,8 @@ mod tests {
         let doc_e = mgr_e.resolve_document_path("Sales/INV001.pdf").unwrap();
         let doc_f = mgr_f.resolve_document_path("Sales/INV001.pdf").unwrap();
 
-        assert_eq!(doc_e, drive_e.join("Documents").join("Sales/INV001.pdf"));
-        assert_eq!(doc_f, drive_f.join("Documents").join("Sales/INV001.pdf"));
+        assert_eq!(doc_e, drive_e.join("Data").join("Documents").join("Sales/INV001.pdf"));
+        assert_eq!(doc_f, drive_f.join("Data").join("Documents").join("Sales/INV001.pdf"));
     }
 
     #[test]
@@ -145,5 +145,127 @@ mod tests {
 
         // Clean up temp test directory
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_legacy_data_import_staging_and_validation() {
+        use crate::importer::{LegacyImporter, LegacyImportPayload, LegacyCustomerRow, LegacyProductRow};
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::run_migrations(&conn).unwrap();
+
+        // Seed company
+        conn.execute(
+            "INSERT INTO companies (id, name, currency_symbol, currency_code, created_at, updated_at)
+             VALUES ('comp_legacy', 'Legacy Test Corp', '₹', 'INR', '2026-10-12', '2026-10-12')",
+            [],
+        ).unwrap();
+
+        let payload = LegacyImportPayload {
+            company_id: "comp_legacy".to_string(),
+            customers: vec![
+                LegacyCustomerRow {
+                    name: "Acme Client".to_string(),
+                    code: Some("CUST-001".to_string()),
+                    phone: Some("9876543210".to_string()),
+                    email: None,
+                    address: None,
+                    tax_number: None,
+                    opening_balance: Some(150000),
+                },
+                LegacyCustomerRow {
+                    name: "".to_string(), // Invalid: empty name
+                    code: None,
+                    phone: None,
+                    email: None,
+                    address: None,
+                    tax_number: None,
+                    opening_balance: None,
+                },
+            ],
+            suppliers: vec![],
+            products: vec![
+                LegacyProductRow {
+                    name: "Steel Rods".to_string(),
+                    code: Some("PRD-001".to_string()),
+                    purchase_price: Some(5000),
+                    selling_price: Some(7500),
+                    opening_stock: Some(50.0),
+                    tax_rate_bps: Some(1800),
+                },
+                LegacyProductRow {
+                    name: "Broken Negative Item".to_string(),
+                    code: Some("PRD-NEG".to_string()),
+                    purchase_price: Some(100),
+                    selling_price: Some(200),
+                    opening_stock: Some(-5.0), // Invalid: negative opening stock
+                    tax_rate_bps: Some(0),
+                },
+            ],
+        };
+
+        let summary = LegacyImporter::import_legacy_data(&mut conn, payload).unwrap();
+        assert_eq!(summary.customers_imported, 1);
+        assert_eq!(summary.products_imported, 1);
+        assert_eq!(summary.rejected_count, 2); // 1 empty customer name, 1 negative product stock
+
+        // Verify that valid records became native SDL ACC entities
+        let cust_count: i64 = conn.query_row("SELECT COUNT(*) FROM customers WHERE company_id = 'comp_legacy'", [], |r| r.get(0)).unwrap();
+        assert_eq!(cust_count, 1);
+
+        let prod_stock: f64 = conn.query_row("SELECT current_stock FROM products WHERE code = 'PRD-001'", [], |r| r.get(0)).unwrap();
+        assert_eq!(prod_stock, 50.0);
+    }
+
+    #[test]
+    fn test_package_export_and_import_roundtrip() {
+        use crate::storage::PathManager;
+        use crate::transfer::TransferService;
+
+        let comp_a_dir = std::env::temp_dir().join(format!("SDL_ACC_CompA_{}", uuid::Uuid::new_v4()));
+        let usb_dir = std::env::temp_dir().join(format!("SDL_ACC_USB_{}", uuid::Uuid::new_v4()));
+        let comp_b_dir = std::env::temp_dir().join(format!("SDL_ACC_CompB_{}", uuid::Uuid::new_v4()));
+
+        let mgr_a = PathManager::init_with_mode(comp_a_dir.clone(), true);
+        let mut conn_a = Connection::open(&mgr_a.database_path()).unwrap();
+        db::run_migrations(&conn_a).unwrap();
+
+        // Insert accounting data on Computer A
+        conn_a.execute(
+            "INSERT INTO companies (id, name, currency_symbol, currency_code, created_at, updated_at)
+             VALUES ('comp_transfer', 'Transferable Corp', '₹', 'INR', '2026-10-12', '2026-10-12')",
+            [],
+        ).unwrap();
+
+        // 1. Export package to USB simulation directory
+        let export_res = TransferService::export_package(&conn_a, &mgr_a, &usb_dir).unwrap();
+        assert!(export_res.success);
+
+        // 2. Validate package on USB
+        let validation = TransferService::validate_package(&usb_dir);
+        assert!(validation.is_valid);
+        assert_eq!(validation.manifest.unwrap().company_name.unwrap(), "Transferable Corp");
+
+        // 3. Import package onto Computer B
+        let mgr_b = PathManager::init_with_mode(comp_b_dir.clone(), true);
+        let mut conn_b = Connection::open(&mgr_b.database_path()).unwrap();
+        db::run_migrations(&conn_b).unwrap();
+
+        let import_res = TransferService::import_package(&mut conn_b, &mgr_b, &usb_dir).unwrap();
+        assert!(import_res.success);
+
+        // 4. Verify Computer B now contains identical accounting records
+        let verified_conn = Connection::open(&mgr_b.database_path()).unwrap();
+        let comp_b_name: String = verified_conn.query_row(
+            "SELECT name FROM companies WHERE id = 'comp_transfer'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(comp_b_name, "Transferable Corp");
+
+        // Clean up temp directories
+        let _ = std::fs::remove_dir_all(&comp_a_dir);
+        let _ = std::fs::remove_dir_all(&usb_dir);
+        let _ = std::fs::remove_dir_all(&comp_b_dir);
     }
 }

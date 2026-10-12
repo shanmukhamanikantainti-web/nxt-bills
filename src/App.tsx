@@ -14,12 +14,15 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ShieldAlert
+  ShieldAlert,
+  FileSpreadsheet,
+  UploadCloud,
+  DownloadCloud
 } from 'lucide-react';
-import { api, Company, Customer, Supplier, Product, DashboardMetrics, TrialBalanceEntry, StorageInfo, formatCurrency } from './services/api';
+import { api, Company, Customer, Supplier, Product, DashboardMetrics, TrialBalanceEntry, StorageInfo, formatCurrency, ImportSummaryReport, ValidationResult } from './services/api';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'sales' | 'purchases' | 'inventory' | 'customers' | 'suppliers' | 'ledger' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'sales' | 'purchases' | 'inventory' | 'customers' | 'suppliers' | 'ledger' | 'transfer' | 'legacy' | 'settings'>('dashboard');
   const [company, setCompany] = useState<Company | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -63,9 +66,118 @@ export default function App() {
   const [purBillNo, setPurBillNo] = useState('BILL-001');
   const [purMode, setPurMode] = useState('Credit');
 
+  // Transfer & Legacy Import states
+  const [exportDestPath, setExportDestPath] = useState('E:\\');
+  const [importSrcPath, setImportSrcPath] = useState('E:\\SDL_ACC');
+  const [exportProgress, setExportProgress] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
+  const [packageValidation, setPackageValidation] = useState<ValidationResult | null>(null);
+
+  // Legacy import input states
+  const [legacyText, setLegacyText] = useState(`[
+  {
+    "type": "customer",
+    "name": "Mahalakshmi Traders",
+    "code": "CUST-101",
+    "phone": "9840123456",
+    "opening_balance": 250000
+  },
+  {
+    "type": "supplier",
+    "name": "Bharat Steel Mills",
+    "code": "SUPP-201",
+    "phone": "9444123456",
+    "opening_balance": 180000
+  },
+  {
+    "type": "product",
+    "name": "Industrial Fasteners Box",
+    "code": "PRD-501",
+    "purchase_price": 4500,
+    "selling_price": 6200,
+    "opening_stock": 100,
+    "tax_rate_bps": 1800
+  }
+]`);
+  const [legacyReport, setLegacyReport] = useState<ImportSummaryReport | null>(null);
+  const [importingLegacy, setImportingLegacy] = useState(false);
+
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  const handleExportPackage = async () => {
+    if (!exportDestPath) return;
+    setExportProgress('Preparing database, flushing WAL, and generating checksums...');
+    try {
+      const res = await api.exportTransferPackage(exportDestPath);
+      setExportProgress(null);
+      showNotification(`Export Success: Package created at ${res.export_path}`);
+    } catch (e: any) {
+      setExportProgress(null);
+      showNotification(`Export Failed: ${e.toString()}`, true);
+    }
+  };
+
+  const handleValidatePackage = async () => {
+    if (!importSrcPath) return;
+    setImportProgress('Validating package structure and PRAGMA integrity...');
+    try {
+      const res = await api.validateTransferPackage(importSrcPath);
+      setPackageValidation(res);
+      setImportProgress(null);
+      if (res.is_valid) {
+        showNotification('Package integrity check passed! Ready for safe import.');
+      } else {
+        showNotification(`Validation issues detected: ${res.errors.join(', ')}`, true);
+      }
+    } catch (e: any) {
+      setImportProgress(null);
+      showNotification(`Validation failed: ${e.toString()}`, true);
+    }
+  };
+
+  const handleImportPackage = async () => {
+    if (!importSrcPath) return;
+    setImportProgress('Creating safety backup and importing portable database...');
+    try {
+      const res = await api.importTransferPackage(importSrcPath);
+      setImportProgress(null);
+      showNotification(`Package imported! Safety backup saved at: ${res.safety_backup_path || 'local backups'}`);
+      await loadInitialData();
+    } catch (e: any) {
+      setImportProgress(null);
+      showNotification(`Import failed: ${e.toString()}`, true);
+    }
+  };
+
+  const handleExecuteLegacyImport = async () => {
+    if (!company) return;
+    setImportingLegacy(true);
+    try {
+      const parsed = JSON.parse(legacyText);
+      if (!Array.isArray(parsed)) throw new Error('Input must be a JSON array of records');
+
+      const customers = parsed.filter(r => r.type === 'customer');
+      const suppliers = parsed.filter(r => r.type === 'supplier');
+      const products = parsed.filter(r => r.type === 'product');
+
+      const report = await api.importLegacyData({
+        company_id: company.id,
+        customers,
+        suppliers,
+        products,
+      });
+
+      setLegacyReport(report);
+      showNotification(`Legacy Import: ${report.imported_successfully} records ingested, ${report.rejected_count} rejected`);
+      await refreshCompanyData(company.id);
+    } catch (e: any) {
+      showNotification(`Legacy Import Error: ${e.toString()}`, true);
+    } finally {
+      setImportingLegacy(false);
+    }
+  };
 
   const showNotification = (msg: string, isError = false) => {
     if (isError) {
@@ -324,6 +436,8 @@ export default function App() {
               { id: 'customers', label: 'Customers', icon: Users },
               { id: 'suppliers', label: 'Suppliers', icon: Truck },
               { id: 'ledger', label: 'Trial Balance & Ledgers', icon: BookOpen },
+              { id: 'transfer', label: 'USB Transfer Package', icon: UploadCloud },
+              { id: 'legacy', label: 'Legacy Data Import', icon: FileSpreadsheet },
               { id: 'settings', label: 'Storage & Backup', icon: HardDrive },
             ].map(item => {
               const Icon = item.icon;
@@ -1078,6 +1192,206 @@ export default function App() {
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* USB TRANSFER PACKAGE TAB */}
+          {activeTab === 'transfer' && (
+            <div className="space-y-6 max-w-4xl">
+              <div>
+                <h2 className="text-lg font-bold text-white">SDL ACC Self-Contained USB Transfer Package</h2>
+                <p className="text-xs text-slate-400">Export complete portable system (App + Database + Documents + Backups) or import onto another PC</p>
+              </div>
+
+              {/* EXPORT SECTION */}
+              <div className="border border-slate-800 rounded-xl bg-slate-900/60 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                      <UploadCloud className="w-4 h-4 text-emerald-400" />
+                      Export Portable Package to USB
+                    </h3>
+                    <p className="text-xs text-slate-400">Flushes WAL, validates ledger balance, generates SHA-256 manifest, and copies entire runtime structure.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 items-center pt-2">
+                  <div className="flex-1">
+                    <label className="text-[11px] text-slate-400 block mb-1 font-mono">Target USB Drive or Directory</label>
+                    <input
+                      type="text"
+                      value={exportDestPath}
+                      onChange={e => setExportDestPath(e.target.value)}
+                      placeholder="e.g. E:\ or D:\USB_Transfers"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={handleExportPackage}
+                    disabled={!!exportProgress}
+                    className="mt-5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5" />
+                    Export Full Package
+                  </button>
+                </div>
+
+                {exportProgress && (
+                  <div className="p-3 bg-emerald-950/40 border border-emerald-800/40 rounded-lg text-xs text-emerald-300 flex items-center gap-2 animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    {exportProgress}
+                  </div>
+                )}
+              </div>
+
+              {/* IMPORT SECTION */}
+              <div className="border border-slate-800 rounded-xl bg-slate-900/60 p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                    <DownloadCloud className="w-4 h-4 text-cyan-400" />
+                    Import & Restore Package from USB
+                  </h3>
+                  <p className="text-xs text-slate-400">Inspects manifest, verifies PRAGMA database integrity, validates checksums, takes an automatic safety backup, and activates.</p>
+                </div>
+
+                <div className="flex gap-3 items-center pt-2">
+                  <div className="flex-1">
+                    <label className="text-[11px] text-slate-400 block mb-1 font-mono">Package Source Folder</label>
+                    <input
+                      type="text"
+                      value={importSrcPath}
+                      onChange={e => setImportSrcPath(e.target.value)}
+                      placeholder="e.g. E:\SDL_ACC"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={handleValidatePackage}
+                    disabled={!!importProgress}
+                    className="mt-5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 transition"
+                  >
+                    Verify Package
+                  </button>
+                  <button
+                    onClick={handleImportPackage}
+                    disabled={!!importProgress}
+                    className="mt-5 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition"
+                  >
+                    Safe Import & Activate
+                  </button>
+                </div>
+
+                {importProgress && (
+                  <div className="p-3 bg-cyan-950/40 border border-cyan-800/40 rounded-lg text-xs text-cyan-300 flex items-center gap-2 animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    {importProgress}
+                  </div>
+                )}
+
+                {packageValidation && (
+                  <div className={`p-4 border rounded-xl text-xs space-y-2 ${packageValidation.is_valid ? 'bg-emerald-950/30 border-emerald-800/50' : 'bg-red-950/30 border-red-800/50'}`}>
+                    <div className="flex items-center justify-between font-semibold">
+                      <span className={packageValidation.is_valid ? 'text-emerald-300' : 'text-red-300'}>
+                        {packageValidation.is_valid ? '✓ Package Integrity & Checksums Verified' : '⚠ Validation Issues Found'}
+                      </span>
+                      {packageValidation.manifest && (
+                        <span className="text-slate-400 font-mono text-[11px]">
+                          Company: {packageValidation.manifest.company_name} (App v{packageValidation.manifest.app_version})
+                        </span>
+                      )}
+                    </div>
+                    {packageValidation.checks.length > 0 && (
+                      <ul className="text-slate-400 space-y-0.5 font-mono text-[11px]">
+                        {packageValidation.checks.map((c, i) => <li key={i}>• {c}</li>)}
+                      </ul>
+                    )}
+                    {packageValidation.errors.length > 0 && (
+                      <div className="text-red-400 font-medium">
+                        Errors: {packageValidation.errors.join(' | ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* LEGACY DATA IMPORT TAB */}
+          {activeTab === 'legacy' && (
+            <div className="space-y-6 max-w-4xl">
+              <div>
+                <h2 className="text-lg font-bold text-white">Legacy Data Import & Staging Pipeline</h2>
+                <p className="text-xs text-slate-400">Import existing customers, suppliers, and inventory products into production accounting without bypassing double-entry constraints</p>
+              </div>
+
+              <div className="border border-slate-800 rounded-xl bg-slate-900/60 p-5 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                      Legacy Structured JSON / CSV Staging Ingestion
+                    </h3>
+                    <p className="text-xs text-slate-400">Validates required fields, prevents duplicate codes, enforces non-negative stock, and automatically creates sub-ledgers.</p>
+                  </div>
+                  <button
+                    onClick={handleExecuteLegacyImport}
+                    disabled={importingLegacy}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-2 transition"
+                  >
+                    {importingLegacy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    Validate & Ingest Records
+                  </button>
+                </div>
+
+                <textarea
+                  value={legacyText}
+                  onChange={e => setLegacyText(e.target.value)}
+                  rows={12}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                />
+
+                {legacyReport && (
+                  <div className="p-4 border border-slate-800 bg-slate-900 rounded-xl space-y-3 text-xs">
+                    <h4 className="font-bold text-slate-200">Import Summary Audit</h4>
+                    <div className="grid grid-cols-4 gap-3 text-center">
+                      <div className="p-2 bg-slate-800 rounded">
+                        <div className="text-lg font-bold text-slate-100">{legacyReport.total_processed}</div>
+                        <div className="text-[10px] text-slate-400">Total Processed</div>
+                      </div>
+                      <div className="p-2 bg-emerald-950/60 border border-emerald-800/40 rounded">
+                        <div className="text-lg font-bold text-emerald-300">{legacyReport.imported_successfully}</div>
+                        <div className="text-[10px] text-emerald-400">Ingested Cleanly</div>
+                      </div>
+                      <div className="p-2 bg-amber-950/60 border border-amber-800/40 rounded">
+                        <div className="text-lg font-bold text-amber-300">{legacyReport.warnings_count}</div>
+                        <div className="text-[10px] text-amber-400">Warnings/Skipped</div>
+                      </div>
+                      <div className="p-2 bg-red-950/60 border border-red-800/40 rounded">
+                        <div className="text-lg font-bold text-red-300">{legacyReport.rejected_count}</div>
+                        <div className="text-[10px] text-red-400">Rejected (Invalid)</div>
+                      </div>
+                    </div>
+
+                    {legacyReport.rejected_details.length > 0 && (
+                      <div className="p-2 bg-red-950/30 border border-red-800/40 rounded text-red-300 text-[11px] font-mono">
+                        <span className="font-bold">Rejection Details:</span>
+                        <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                          {legacyReport.rejected_details.map((r, i) => <li key={i}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {legacyReport.warnings.length > 0 && (
+                      <div className="p-2 bg-amber-950/30 border border-amber-800/40 rounded text-amber-300 text-[11px] font-mono">
+                        <span className="font-bold">Warnings:</span>
+                        <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                          {legacyReport.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

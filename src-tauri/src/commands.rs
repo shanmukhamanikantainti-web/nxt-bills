@@ -42,6 +42,43 @@ pub fn resolve_document_path(state: State<'_, AppState>, relative_path: String) 
 }
 
 #[tauri::command]
+pub fn export_transfer_package(
+    state: State<'_, AppState>,
+    target_dir: String,
+) -> Result<crate::transfer::ExportPackageResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mgr = state.storage.lock().map_err(|e| e.to_string())?;
+    let target_path = std::path::PathBuf::from(target_dir);
+    crate::transfer::TransferService::export_package(&conn, &mgr, &target_path)
+}
+
+#[tauri::command]
+pub fn validate_transfer_package(package_dir: String) -> Result<crate::transfer::ValidationResult, String> {
+    let target_path = std::path::PathBuf::from(package_dir);
+    Ok(crate::transfer::TransferService::validate_package(&target_path))
+}
+
+#[tauri::command]
+pub fn import_transfer_package(
+    state: State<'_, AppState>,
+    package_dir: String,
+) -> Result<crate::transfer::ImportPackageResult, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mgr = state.storage.lock().map_err(|e| e.to_string())?;
+    let target_path = std::path::PathBuf::from(package_dir);
+    crate::transfer::TransferService::import_package(&mut conn, &mgr, &target_path)
+}
+
+#[tauri::command]
+pub fn import_legacy_data(
+    state: State<'_, AppState>,
+    payload: crate::importer::LegacyImportPayload,
+) -> Result<crate::importer::ImportSummaryReport, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::importer::LegacyImporter::import_legacy_data(&mut conn, payload)
+}
+
+#[tauri::command]
 pub fn get_company(state: State<'_, AppState>) -> Result<Option<Company>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(

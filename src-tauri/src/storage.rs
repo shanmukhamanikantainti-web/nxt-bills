@@ -17,6 +17,8 @@ pub struct StorageInfo {
     pub database_path: String,
     pub documents_directory: String,
     pub backups_directory: String,
+    pub imports_directory: String,
+    pub exports_directory: String,
     pub config_directory: String,
     pub logs_directory: String,
     pub temp_directory: String,
@@ -30,7 +32,10 @@ pub struct PathManager {
     mode: DeploymentMode,
     app_root: PathBuf,
     data_dir: PathBuf,
+    database_dir: PathBuf,
     documents_dir: PathBuf,
+    imports_dir: PathBuf,
+    exports_dir: PathBuf,
     backups_dir: PathBuf,
     config_dir: PathBuf,
     logs_dir: PathBuf,
@@ -39,7 +44,7 @@ pub struct PathManager {
 
 impl PathManager {
     /// Construct the PathManager dynamically based on portable detection:
-    /// - Checks for `portable.flag` adjacent to the executable or in current dir.
+    /// - Checks for `portable.flag` adjacent to the executable, in ../Config, or in current dir.
     /// - If present => Portable Mode: All data directories resolve relative to the portable root.
     /// - If absent => Installed Mode: Separates application binaries from user accounting data in `%LOCALAPPDATA%\SDL_ACC` or `%USERPROFILE%\Documents\SDL_ACC`.
     pub fn new() -> Self {
@@ -48,20 +53,39 @@ impl PathManager {
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
 
-        // Check for portable indicator
+        // Check for portable indicator in:
+        // 1. Same directory as executable (App/portable.flag or root portable.flag)
+        // 2. Parent directory Config/portable.flag
+        // 3. Current working directory Config/portable.flag or portable.flag
         let is_portable = exe_dir.join("portable.flag").exists()
-            || Path::new("portable.flag").exists()
-            || exe_dir.join("portable.txt").exists()
-            || Path::new("portable.txt").exists();
+            || exe_dir.join("Config").join("portable.flag").exists()
+            || exe_dir.parent().map(|p| p.join("Config").join("portable.flag").exists()).unwrap_or(false)
+            || exe_dir.parent().map(|p| p.join("portable.flag").exists()).unwrap_or(false)
+            || Path::new("Config").join("portable.flag").exists()
+            || Path::new("portable.flag").exists();
 
-        Self::init_with_mode(exe_dir, is_portable)
+        let root_dir = if is_portable {
+            if exe_dir.ends_with("App") {
+                exe_dir.parent().map(|p| p.to_path_buf()).unwrap_or(exe_dir)
+            } else {
+                exe_dir
+            }
+        } else {
+            exe_dir
+        };
+
+        Self::init_with_mode(root_dir, is_portable)
     }
 
     /// Internal initialization with explicit mode for testing and runtime
-    pub fn init_with_mode(exe_dir: PathBuf, is_portable: bool) -> Self {
-        let (mode, app_root, data_root) = if is_portable {
-            let root = exe_dir.clone();
-            (DeploymentMode::Portable, root.clone(), root)
+    pub fn init_with_mode(root_dir: PathBuf, is_portable: bool) -> Self {
+        let (mode, app_root, data_root, config_root) = if is_portable {
+            (
+                DeploymentMode::Portable,
+                root_dir.join("App"),
+                root_dir.join("Data"),
+                root_dir.join("Config"),
+            )
         } else {
             // Installed mode: User Data kept safe from application binary updates
             let data_root = if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
@@ -72,21 +96,31 @@ impl PathManager {
                 PathBuf::from(".").join("SDL_ACC_Data")
             };
 
-            (DeploymentMode::Installed, exe_dir, data_root)
+            (
+                DeploymentMode::Installed,
+                root_dir.clone(),
+                data_root.join("Data"),
+                data_root.join("Config"),
+            )
         };
 
-        let data_dir = data_root.join("Data");
+        let database_dir = data_root.join("Database");
         let documents_dir = data_root.join("Documents");
+        let imports_dir = data_root.join("Imports");
+        let exports_dir = data_root.join("Exports");
         let backups_dir = data_root.join("Backups");
-        let config_dir = data_root.join("Config");
-        let logs_dir = data_root.join("Logs");
-        let temp_dir = data_root.join("Temp");
+        let config_dir = config_root;
+        let logs_dir = if is_portable { root_dir.join("Logs") } else { data_root.join("Logs") };
+        let temp_dir = if is_portable { root_dir.join("Temp") } else { data_root.join("Temp") };
 
         let manager = PathManager {
             mode,
             app_root,
-            data_dir,
+            data_dir: data_root,
+            database_dir,
             documents_dir,
+            imports_dir,
+            exports_dir,
             backups_dir,
             config_dir,
             logs_dir,
@@ -100,14 +134,26 @@ impl PathManager {
     /// Ensure required data directories exist
     pub fn ensure_directories(&self) {
         let _ = fs::create_dir_all(&self.data_dir);
+        let _ = fs::create_dir_all(&self.database_dir);
         let _ = fs::create_dir_all(&self.documents_dir.join("Sales"));
         let _ = fs::create_dir_all(&self.documents_dir.join("Purchases"));
         let _ = fs::create_dir_all(&self.documents_dir.join("DebitNotes"));
         let _ = fs::create_dir_all(&self.documents_dir.join("CreditNotes"));
+        let _ = fs::create_dir_all(&self.documents_dir.join("Other"));
+        let _ = fs::create_dir_all(&self.imports_dir.join("Legacy"));
+        let _ = fs::create_dir_all(&self.imports_dir.join("Processed"));
+        let _ = fs::create_dir_all(&self.exports_dir);
         let _ = fs::create_dir_all(&self.backups_dir);
         let _ = fs::create_dir_all(&self.config_dir);
         let _ = fs::create_dir_all(&self.logs_dir);
         let _ = fs::create_dir_all(&self.temp_dir);
+
+        // Ensure legacy path compatibility: if old Data/company.sqlite exists, migrate to Database/company.sqlite
+        let old_db = self.data_dir.join("company.sqlite");
+        let new_db = self.database_dir.join("company.sqlite");
+        if old_db.exists() && !new_db.exists() {
+            let _ = fs::rename(&old_db, &new_db);
+        }
     }
 
     pub fn mode(&self) -> &DeploymentMode {
@@ -122,12 +168,24 @@ impl PathManager {
         &self.data_dir
     }
 
+    pub fn database_directory(&self) -> &Path {
+        &self.database_dir
+    }
+
     pub fn database_path(&self) -> PathBuf {
-        self.data_dir.join("company.sqlite")
+        self.database_dir.join("company.sqlite")
     }
 
     pub fn documents_directory(&self) -> &Path {
         &self.documents_dir
+    }
+
+    pub fn imports_directory(&self) -> &Path {
+        &self.imports_dir
+    }
+
+    pub fn exports_directory(&self) -> &Path {
+        &self.exports_dir
     }
 
     pub fn backups_directory(&self) -> &Path {
@@ -146,23 +204,23 @@ impl PathManager {
         &self.temp_dir
     }
 
-    /// Resolves a logical/relative document path (e.g. "Sales/INV001.pdf") against current documents root.
-    /// Never stores absolute paths or drive letters in database.
-    /// Prevents directory traversal attacks.
+    /// Resolves a logical/relative document path (e.g. "Sales/INV001.pdf" or "Documents/Sales/INV001.pdf")
+    /// against current documents root. Never stores absolute paths or drive letters in database.
     pub fn resolve_document_path(&self, relative_path: &str) -> Result<PathBuf, String> {
         let clean_path = relative_path.replace('\\', "/");
         if clean_path.starts_with('/') || clean_path.contains("..") {
             return Err("Invalid document path: directory traversal attempt rejected".to_string());
         }
 
-        let full_path = self.documents_dir.join(clean_path);
+        let stripped = clean_path.strip_prefix("Documents/").unwrap_or(&clean_path);
+        let full_path = self.documents_dir.join(stripped);
         Ok(full_path)
     }
 
     /// Converts an absolute file path into a relative document path for portable database storage.
     pub fn to_relative_document_path(&self, full_path: &Path) -> Result<String, String> {
         match full_path.strip_prefix(&self.documents_dir) {
-            Ok(rel) => Ok(rel.to_string_lossy().replace('\\', "/")),
+            Ok(rel) => Ok(format!("Documents/{}", rel.to_string_lossy().replace('\\', "/"))),
             Err(_) => Err("Path is not within SDL ACC documents directory".to_string()),
         }
     }
@@ -179,6 +237,8 @@ impl PathManager {
             database_path: db_path.to_string_lossy().to_string(),
             documents_directory: self.documents_dir.to_string_lossy().to_string(),
             backups_directory: self.backups_dir.to_string_lossy().to_string(),
+            imports_directory: self.imports_dir.to_string_lossy().to_string(),
+            exports_directory: self.exports_dir.to_string_lossy().to_string(),
             config_directory: self.config_dir.to_string_lossy().to_string(),
             logs_directory: self.logs_dir.to_string_lossy().to_string(),
             temp_directory: self.temp_dir.to_string_lossy().to_string(),
