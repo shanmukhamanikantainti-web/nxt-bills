@@ -1,0 +1,71 @@
+{
+  "templateId": "dhanalakshmi-tax-invoice",
+  "version": "1.0.0",
+  "name": "Sri Dhanalakshmi Agencies Official Tax Invoice",
+  "description": "Standard production A4 portrait GST Tax Invoice template matching Dhanalakshmi Agencies specifications",
+  "paper": "A4",
+  "orientation": "portrait",
+  "dimensions": {
+    "width": "794px",
+    "height": "1123px",
+    "unit": "pixels",
+    "physicalWidthMm": 210,
+    "physicalHeightMm": 297
+  },
+  "bindings": {
+    "company": [
+      "legalName",
+      "tradeName",
+      "gstin",
+      "pan",
+      "addressLine1",
+      "addressLine2",
+      "city",
+      "state",
+      "stateCode",
+      "postalCode",
+      "phone",
+      "email",
+      "website",
+      "accentColor"
+    ],
+    "customer": [
+      "name",
+      "address",
+      "city",
+      "state",
+      "stateCode",
+      "gstin",
+      "phone",
+      "shippingAddress"
+    ],
+    "invoice": [
+      "invoiceNumber",
+      "invoiceDate",
+      "ackNumber",
+      "ackDate",
+      "irnNumber",
+      "paymentMode",
+      "employeeName",
+      "subtotal",
+      "roundOff",
+      "grandTotal",
+      "amountInWords",
+      "itemCount"
+    ],
+    "items": [
+      "serialNumber",
+      "productName",
+      "hsnSac",
+      "quantity",
+      "rate",
+      "cgstRate",
+      "cgstAmount",
+      "sgstRate",
+      "sgstAmount",
+      "igstRate",
+      "igstAmount",
+      "total"
+    ]
+  }
+}

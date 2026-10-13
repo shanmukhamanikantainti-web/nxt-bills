@@ -1,0 +1,61 @@
+========================================================================
+SDL ACC — Release Changelog
+========================================================================
+
+Version 1.1.0 (2026-10-13) — UI OVERHAUL & EXACT INVOICE PRINTING RELEASE
+------------------------------------------------------------------------
+- Accounting Software Desktop UI Overhaul:
+  * Complete removal of vibe-coded SaaS / dark cards in favor of a mature,
+    dense Windows accounting interface (Tally / BUSY / Marg design language).
+  * Ergonomic color scheme: Neutral gray #F4F5F7 background, pure white
+    #FFFFFF work areas, thin #C8CDD3 borders, high-contrast #1F2933 text,
+    and professional navy (#102A43) accents.
+  * Form-based layouts, dense data entry, compact buttons with 2–4px radius,
+    and real-time Windows status bar at bottom.
+- Keyboard-First Voucher Entry:
+  * Fast accounting billing workflow with full keyboard navigation:
+    F2 (Date), F4 (Customer), F5 (Sales Invoice), F6 (Product selection),
+    F7 (Quantity), F8 (Payment Mode cycle), Ctrl+S (Save), Ctrl+P (Save & Print),
+    Ctrl+Shift+P (Print Preview), Esc (Cancel / Close).
+  * Inline Quick Master Creation (Alt+C) for Customers and Products directly
+    inside the voucher entry screen without clearing current invoice lines.
+- Exact Customer-Facing Invoice Printing System:
+  * Strict architectural separation between Desktop Application UI and
+    Customer-Facing Printed Invoice.
+  * Exact reproduction of Sri Dhanalakshmi Agencies A4 Tax Invoice reference
+    (Tax Invoice.png and Dhanalakshmi Agencies Invoice.html).
+  * Exact A4 dimensions (794x1123px / 210x297mm), crimson red (#D4121C) company
+    title, split customer and invoice metadata boxes (54% / 46%), HSN breakdown,
+    CGST/SGST/IGST columns, auto-padded blank rows, receiver signature,
+    and authorized signatory blocks.
+  * Amount in Words generated dynamically in Indian numbering format (Crore,
+    Lakh, Thousand, Hundred) via numberToIndianWords.
+  * Zero external CDN or Google Fonts runtime dependencies — 100% offline print.
+  * Production template packaged in resources/invoice-templates/dhanalakshmi/
+    with version manifest (template.json).
+- Packaging & Distribution:
+  * Updated Windows NSIS installer: SDL_ACC_Setup.exe
+  * Updated standalone portable folder: SDL_ACC/ (with Launch_SDL_ACC.bat and portable.flag)
+  * Updated standalone portable archive: SDL_ACC_Portable.zip
+
+------------------------------------------------------------------------
+Version 1.0.0 (2026-10-12) — INITIAL RELEASE
+------------------------------------------------------------------------
+- Core Architecture:
+  * Centralized PathManager with auto-detection for Installed and Portable modes.
+  * Zero developer-specific machine path leakage.
+  * Portable Mode activated via 'portable.flag' beside executable.
+  * Dynamic root-relative document referencing (e.g. 'Sales/INV001.pdf').
+  * Strict path traversal rejection and input sanitization.
+- Accounting & Inventory Engine:
+  * Double-entry bookkeeping engine strictly enforcing Total Debit = Total Credit.
+  * Transaction rollback safety on imbalance.
+  * Atomic stock movement transactions with non-negative stock enforcement.
+  * Real-time Trial Balance and Dashboard Metrics computation.
+- Storage & Portability:
+  * Atomic backups using SQLite VACUUM INTO with PRAGMA integrity verification.
+  * Safe-eject WAL checkpointing (PRAGMA wal_checkpoint(TRUNCATE)).
+  * Fully portable SQLite database compatible across Windows drive letters and PCs.
+- Packaging:
+  * Standalone Windows NSIS installer (SDL_ACC_Setup.exe).
+  * Standalone Portable Package (SDL_ACC_Portable.zip).

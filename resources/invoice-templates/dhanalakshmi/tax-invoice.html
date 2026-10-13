@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TAX INVOICE — {{company.legalName}}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #ffffff;
+      color: #111111;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 11.5px;
+      line-height: 1.35;
+      display: flex;
+      justify-content: center;
+      padding: 0;
+    }
+    .invoice-container {
+      width: 794px;
+      min-height: 1123px;
+      background: #ffffff;
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+    }
+    .invoice-border-box {
+      border: 1px solid #111111;
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+    }
+    .accent-text {
+      color: {{company.accentColor}};
+      font-weight: 800;
+    }
+    table.product-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    table.product-table th {
+      border-right: 1px solid #111111;
+      border-bottom: 1px solid #111111;
+      padding: 4px 5px;
+      text-align: left;
+      font-weight: 700;
+      font-size: 10.5px;
+      text-transform: uppercase;
+    }
+    table.product-table th:last-child {
+      border-right: none;
+    }
+    table.product-table td {
+      border-right: 1px solid #111111;
+      padding: 3px 5px;
+      font-size: 11px;
+    }
+    table.product-table td:last-child {
+      border-right: none;
+    }
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    @media print {
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      .invoice-container {
+        width: 100%;
+        min-height: auto;
+        padding: 10mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice-container">
+    <div class="invoice-border-box">
+      <!-- HEADER -->
+      <div style="border-bottom: 1px solid #111111; padding: 4px 10px; display: flex; justify-content: space-between; font-size: 11px; font-weight: 700;">
+        <span>GSTIN: {{company.gstin}}</span>
+        <span style="font-size: 14px; font-weight: 800; letter-spacing: 0.5px;">TAX INVOICE</span>
+        <span style="visibility: hidden;">GSTIN</span>
+      </div>
+
+      <!-- COMPANY & TAX/META SPLIT -->
+      <div style="border-bottom: 1px solid #111111; display: flex;">
+        <!-- Left: Company Identity (54%) -->
+        <div style="width: 54%; border-right: 1px solid #111111; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div class="accent-text" style="font-size: 19px; line-height: 1.1; letter-spacing: 0.2px;">
+              {{company.legalName}}
+            </div>
+            <div style="margin-top: 5px; font-size: 11px; line-height: 1.35;">
+              <div>{{company.addressLine1}}, {{company.addressLine2}}</div>
+              <div>{{company.city}} - {{company.postalCode}}, {{company.state}}</div>
+              <div style="margin-top: 4px;">Phone: {{company.phone}}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: GSTIN / PAN / QR & IRN (46%) -->
+        <div style="width: 46%; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 11px; line-height: 1.5;">
+            <div><strong>GSTIN:</strong> {{company.gstin}}</div>
+            <div><strong>PAN:</strong> {{company.pan}}</div>
+            <div style="margin-top: 4px; font-size: 9.5px; color: #444444;">State: {{company.state}} (Code: {{company.stateCode}})</div>
+          </div>
+          <!-- Offline QR Symbol Block -->
+          <div style="width: 78px; height: 78px; border: 1px dashed #444444; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; text-align: center; color: #333333; background: #fafafa;">
+            <span>E-INVOICE</span>
+            <span>QR CODE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CUSTOMER & INVOICE META SPLIT -->
+      <div style="border-bottom: 1px solid #111111; display: flex;">
+        <!-- Left: Customer / Buyer (54%) -->
+        <div style="width: 54%; border-right: 1px solid #111111; padding: 8px 12px; font-size: 11px; line-height: 1.4;">
+          <div style="font-weight: 700; margin-bottom: 2px;">To:</div>
+          <div style="font-size: 12.5px; font-weight: 800; color: #111111;">{{customer.name}}</div>
+          <div>{{customer.address}}</div>
+          <div>{{customer.city}}, {{customer.state}} - Code: {{customer.stateCode}}</div>
+          <div style="margin-top: 4px;"><strong>GSTIN:</strong> {{customer.gstin}}</div>
+          <div><strong>Phone:</strong> {{customer.phone}}</div>
+        </div>
+
+        <!-- Right: Invoice Metadata & Shipping Address (46%) -->
+        <div style="width: 46%; padding: 8px 12px; font-size: 10.5px; line-height: 1.4;">
+          <div style="display: flex; justify-content: space-between;">
+            <strong>Invoice No:</strong> <span>{{invoice.number}}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <strong>Date:</strong> <span>{{invoice.date}}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <strong>Ack No:</strong> <span>{{invoice.ackNumber}}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <strong>Ack Date:</strong> <span>{{invoice.ackDate}}</span>
+          </div>
+          <div style="margin-top: 3px; font-size: 9px; word-break: break-all;">
+            <strong>IRN:</strong> {{invoice.irn}}
+          </div>
+          <div style="border-top: 1px solid #e0e0e0; margin-top: 4px; padding-top: 4px;">
+            <strong>Ship to:</strong> {{customer.shippingAddress}}
+          </div>
+        </div>
+      </div>
+
+      <!-- PRODUCTS TABLE -->
+      <table class="product-table" style="flex: 1 1 auto;">
+        <thead>
+          <tr style="background-color: #f7f7f7;">
+            <th style="width: 32px; text-align: center;">S.No</th>
+            <th>PRODUCT NAME</th>
+            <th style="width: 75px;">HSN/SAC</th>
+            <th style="width: 45px;" class="num">QTY</th>
+            <th style="width: 65px;" class="num">RATE</th>
+            <th style="width: 65px;" class="num">CGST</th>
+            <th style="width: 65px;" class="num">SGST</th>
+            <th style="width: 65px;" class="num">IGST</th>
+            <th style="width: 85px;" class="num">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Dynamic Items Injected Here -->
+          <tr>
+            <td style="text-align: center;">1</td>
+            <td style="font-weight: 600;">{{item.productName}}</td>
+            <td>{{item.hsnSac}}</td>
+            <td class="num">{{item.quantity}}</td>
+            <td class="num">{{item.rate}}</td>
+            <td class="num">{{item.cgst}}</td>
+            <td class="num">{{item.sgst}}</td>
+            <td class="num">{{item.igst}}</td>
+            <td class="num" style="font-weight: 700;">{{item.total}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- TOTALS BAR -->
+      <div style="border-top: 1px solid #111111; display: flex; justify-content: space-between; padding: 6px 12px; font-size: 11px; font-weight: 700; background: #fafafa;">
+        <span>Receiver's Signature</span>
+        <div style="display: flex; gap: 20px;">
+          <span>Round Off: ₹ {{invoice.roundOff}}</span>
+          <span style="font-size: 13px; font-weight: 800;">GRAND TOTAL: ₹ {{invoice.total}}</span>
+        </div>
+      </div>
+
+      <!-- SUMMARY & AMOUNT IN WORDS -->
+      <div style="border-top: 1px solid #111111; padding: 6px 12px; font-size: 11px; line-height: 1.45;">
+        <div style="display: flex; gap: 30px;">
+          <span><strong>Number of items:</strong> {{invoice.itemCount}}</span>
+          <span><strong>Employee Name:</strong> {{invoice.employeeName}}</span>
+          <span><strong>Payment Mode:</strong> {{invoice.paymentMode}}</span>
+        </div>
+        <div style="margin-top: 4px;">
+          <strong>Amount In Words:</strong> {{invoice.amountInWords}}
+        </div>
+      </div>
+
+      <!-- TERMS & SIGNATURES -->
+      <div style="border-top: 1px solid #111111; padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: flex-end;">
+        <div style="font-size: 9.5px; line-height: 1.4; max-width: 440px;">
+          <strong>Note:</strong><br>
+          Goods once sold will not be taken back or exchanged under any circumstances.<br>
+          The article(s) sold is/are guaranteed by respective manufacturers only.<br>
+          Dispute, if any, is subject to {{company.city}} Jurisdiction only.
+        </div>
+        <div style="width: 280px; display: flex; flex-direction: column; align-items: flex-end; gap: 30px;">
+          <div style="font-size: 12px;">
+            For <span class="accent-text">{{company.legalName}}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; width: 100%; font-size: 10.5px;">
+            <span>Customer Signature.</span>
+            <span>Authorised signatory.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div style="border-top: 1px solid #111111; padding: 8px 12px; font-size: 10.5px; line-height: 1.4; background: #fafafa;">
+        <div><strong>Regd. Office:</strong> {{company.addressLine1}}, {{company.addressLine2}}, {{company.city}}, {{company.state}} - {{company.postalCode}}</div>
+        <div style="display: flex; gap: 30px; margin-top: 2px;">
+          <span><strong>Email:</strong> {{company.email}}</span>
+          <span><strong>Website:</strong> {{company.website}}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
