@@ -127,31 +127,85 @@
   font-family: "Segoe UI", Consolas, monospace;
 }
 
-/* Print Specific Rules */
+/* Screen utility for print-only element */
+.print-only {
+  display: none !important;
+}
+
+/* ============================================================== */
+/* PRINT SPECIFIC RULES                                            */
+/* ============================================================== */
 @media print {
-  body * {
-    visibility: hidden !important;
+  /* Dynamic page size accommodating A4, Letter, Legal, A5, etc. with zero browser margin */
+  @page {
+    size: auto;
+    margin: 0 !important;
   }
 
-  #invoice-printable-area,
-  #invoice-printable-area * {
-    visibility: visible !important;
-  }
-
-  #invoice-printable-area {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+  /* Root and Body resets */
+  html, body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
     background: #FFFFFF !important;
-    box-shadow: none !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  @page {
-    size: A4 portrait;
-    margin: 0;
+  #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #FFFFFF !important;
+    display: block !important;
+  }
+
+  /* Entire on-screen UI is completely removed from document flow */
+  .no-print,
+  button,
+  header,
+  nav,
+  footer {
+    display: none !important;
+  }
+
+  /* Dedicated print container: attached directly to page origin (0, 0) */
+  .print-only,
+  #invoice-print-root {
+    display: block !important;
+    visibility: visible !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
+    box-sizing: border-box !important;
+    z-index: 999999 !important;
+  }
+
+  /* Exact document sheet with zero unrequired top whitespace */
+  #invoice-printable-area,
+  .invoice-printable-sheet {
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 auto !important;
+    padding: 3.5mm 6mm 3.5mm 6mm !important;
+    box-sizing: border-box !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
+    display: block !important;
   }
 }

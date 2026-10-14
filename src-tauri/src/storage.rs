@@ -135,10 +135,12 @@ impl PathManager {
     pub fn ensure_directories(&self) {
         let _ = fs::create_dir_all(&self.data_dir);
         let _ = fs::create_dir_all(&self.database_dir);
+        let _ = fs::create_dir_all(&self.database_dir.join("migrations"));
         let _ = fs::create_dir_all(&self.documents_dir.join("Sales"));
         let _ = fs::create_dir_all(&self.documents_dir.join("Purchases"));
         let _ = fs::create_dir_all(&self.documents_dir.join("DebitNotes"));
         let _ = fs::create_dir_all(&self.documents_dir.join("CreditNotes"));
+        let _ = fs::create_dir_all(&self.documents_dir.join("Receipts"));
         let _ = fs::create_dir_all(&self.documents_dir.join("Other"));
         let _ = fs::create_dir_all(&self.imports_dir.join("Legacy"));
         let _ = fs::create_dir_all(&self.imports_dir.join("Processed"));
@@ -147,6 +149,9 @@ impl PathManager {
         let _ = fs::create_dir_all(&self.config_dir);
         let _ = fs::create_dir_all(&self.logs_dir);
         let _ = fs::create_dir_all(&self.temp_dir);
+        let _ = fs::create_dir_all(&self.app_root.join("resources"));
+        let _ = fs::create_dir_all(&self.app_root.join("invoice-templates"));
+        let _ = fs::create_dir_all(&self.app_root.join("runtime"));
 
         // Ensure legacy path compatibility: if old Data/company.sqlite exists, migrate to Database/company.sqlite
         let old_db = self.data_dir.join("company.sqlite");
@@ -173,7 +178,15 @@ impl PathManager {
     }
 
     pub fn database_path(&self) -> PathBuf {
-        self.database_dir.join("company.sqlite")
+        let nxt_db = self.database_dir.join("nxt_bills.sqlite");
+        if nxt_db.exists() {
+            return nxt_db;
+        }
+        let legacy_db = self.database_dir.join("company.sqlite");
+        if legacy_db.exists() {
+            return legacy_db;
+        }
+        nxt_db
     }
 
     pub fn documents_directory(&self) -> &Path {

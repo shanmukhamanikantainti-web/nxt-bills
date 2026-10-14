@@ -409,7 +409,8 @@ pub fn post_sale(state: State<'_, AppState>, input: CreateSaleInput) -> Result<S
     let mut discount_total: i64 = 0;
     let mut tax_total: i64 = 0;
 
-    // 2. Validate items, decrease stock, calculate line amounts
+    // 2. Pre-calculate line amounts
+    let mut item_calculations = Vec::new();
     for item in &input.items {
         let item_sub = ((item.quantity * item.rate as f64).round()) as i64;
         let taxable = item_sub - item.discount;
@@ -420,6 +421,21 @@ pub fn post_sale(state: State<'_, AppState>, input: CreateSaleInput) -> Result<S
         discount_total += item.discount;
         tax_total += item_tax;
 
+        item_calculations.push((item, item_tax, item_total));
+    }
+
+    let grand_total = (subtotal - discount_total) + tax_total;
+    let cust_id = input.customer_id.as_deref().filter(|s| !s.trim().is_empty());
+
+    // 3. Insert sales invoice HEADER FIRST to satisfy foreign key constraints for sales_items
+    tx.execute(
+        "INSERT INTO sales (id, company_id, invoice_number, invoice_date, customer_id, payment_mode, subtotal, discount_total, tax_total, grand_total, status, notes, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'POSTED', ?11, ?12)",
+        params![sale_id, input.company_id, invoice_no, input.invoice_date, cust_id, input.payment_mode, subtotal, discount_total, tax_total, grand_total, input.notes, now],
+    ).map_err(|e| format!("Failed to create sales invoice header: {}", e))?;
+
+    // 4. Insert sales items and record inventory movement
+    for (item, item_tax, item_total) in item_calculations {
         // Reduce stock atomically with audit trail
         inventory::record_stock_movement(
             &tx,
@@ -441,29 +457,21 @@ pub fn post_sale(state: State<'_, AppState>, input: CreateSaleInput) -> Result<S
             "INSERT INTO sales_items (id, sale_id, product_id, quantity, rate, discount, tax_rate_bps, tax_amount, total_amount)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![line_id, sale_id, item.product_id, item.quantity, item.rate, item.discount, item.tax_rate_bps, item_tax, item_total],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| format!("Failed to create sales item: {}", e))?;
     }
 
-    let grand_total = (subtotal - discount_total) + tax_total;
-
-    // 3. Insert sales invoice header
-    tx.execute(
-        "INSERT INTO sales (id, company_id, invoice_number, invoice_date, customer_id, payment_mode, subtotal, discount_total, tax_total, grand_total, status, notes, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'POSTED', ?11, ?12)",
-        params![sale_id, input.company_id, invoice_no, input.invoice_date, input.customer_id, input.payment_mode, subtotal, discount_total, tax_total, grand_total, input.notes, now],
-    ).map_err(|e| e.to_string())?;
-
-    // 4. Double-Entry Accounting
+    // 5. Double-Entry Accounting
     // Look up default system accounts
     let cash_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '1001'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
     let sales_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '4001'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
     let tax_payable_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '2002'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
 
     let debit_account_id = if input.payment_mode == "Credit" {
+        let cid = cust_id.ok_or_else(|| "Customer required for credit sale".to_string())?;
         // Customer sub-ledger
-        let cust_ledger_id: String = tx.query_row("SELECT ledger_account_id FROM customers WHERE id = ?1", params![input.customer_id], |r| r.get(0)).map_err(|e| format!("Customer required for credit sale: {}", e))?;
+        let cust_ledger_id: String = tx.query_row("SELECT ledger_account_id FROM customers WHERE id = ?1", params![cid], |r| r.get(0)).map_err(|e| format!("Customer required for credit sale: {}", e))?;
         // Update customer balance
-        tx.execute("UPDATE customers SET current_balance = current_balance + ?1 WHERE id = ?2", params![grand_total, input.customer_id]).map_err(|e| e.to_string())?;
+        tx.execute("UPDATE customers SET current_balance = current_balance + ?1 WHERE id = ?2", params![grand_total, cid]).map_err(|e| e.to_string())?;
         cust_ledger_id
     } else {
         cash_acc_id
@@ -485,7 +493,7 @@ pub fn post_sale(state: State<'_, AppState>, input: CreateSaleInput) -> Result<S
         "Sales",
         &invoice_no,
         &input.invoice_date,
-        Some(&format!("Invoice {} to {:?}", invoice_no, input.customer_id)),
+        Some(&format!("Invoice {} to {:?}", invoice_no, cust_id)),
         Some(&sale_id),
         &journal_lines,
     )?;
@@ -505,7 +513,8 @@ pub fn post_purchase(state: State<'_, AppState>, input: CreatePurchaseInput) -> 
     let mut discount_total: i64 = 0;
     let mut tax_total: i64 = 0;
 
-    // 1. Process items and increase stock
+    // 1. Pre-calculate line amounts
+    let mut item_calculations = Vec::new();
     for item in &input.items {
         let item_sub = ((item.quantity * item.rate as f64).round()) as i64;
         let taxable = item_sub - item.discount;
@@ -516,6 +525,21 @@ pub fn post_purchase(state: State<'_, AppState>, input: CreatePurchaseInput) -> 
         discount_total += item.discount;
         tax_total += item_tax;
 
+        item_calculations.push((item, item_tax, item_total));
+    }
+
+    let grand_total = (subtotal - discount_total) + tax_total;
+    let supp_id = input.supplier_id.as_deref().filter(|s| !s.trim().is_empty());
+
+    // 2. Insert purchase HEADER FIRST to satisfy foreign key constraints for purchase_items
+    tx.execute(
+        "INSERT INTO purchases (id, company_id, purchase_number, purchase_date, supplier_id, payment_mode, subtotal, discount_total, tax_total, grand_total, status, notes, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'POSTED', ?11, ?12)",
+        params![purchase_id, input.company_id, input.invoice_number, input.invoice_date, supp_id, input.payment_mode, subtotal, discount_total, tax_total, grand_total, input.notes, now],
+    ).map_err(|e| format!("Failed to create purchase header: {}", e))?;
+
+    // 3. Process items and increase stock
+    for (item, item_tax, item_total) in item_calculations {
         inventory::record_stock_movement(
             &tx,
             &input.company_id,
@@ -535,26 +559,18 @@ pub fn post_purchase(state: State<'_, AppState>, input: CreatePurchaseInput) -> 
             "INSERT INTO purchase_items (id, purchase_id, product_id, quantity, rate, discount, tax_rate_bps, tax_amount, total_amount)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![line_id, purchase_id, item.product_id, item.quantity, item.rate, item.discount, item.tax_rate_bps, item_tax, item_total],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| format!("Failed to create purchase item: {}", e))?;
     }
 
-    let grand_total = (subtotal - discount_total) + tax_total;
-
-    // 2. Insert purchase header
-    tx.execute(
-        "INSERT INTO purchases (id, company_id, purchase_number, purchase_date, supplier_id, payment_mode, subtotal, discount_total, tax_total, grand_total, status, notes, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'POSTED', ?11, ?12)",
-        params![purchase_id, input.company_id, input.invoice_number, input.invoice_date, input.supplier_id, input.payment_mode, subtotal, discount_total, tax_total, grand_total, input.notes, now],
-    ).map_err(|e| e.to_string())?;
-
-    // 3. Double-entry accounting
+    // 4. Double-entry accounting
     let cash_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '1001'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
     let purchase_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '5001'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
     let tax_input_acc_id: String = tx.query_row("SELECT id FROM ledger_accounts WHERE company_id = ?1 AND code = '5002'", params![input.company_id], |r| r.get(0)).map_err(|e| e.to_string())?;
 
     let credit_account_id = if input.payment_mode == "Credit" {
-        let supp_ledger_id: String = tx.query_row("SELECT ledger_account_id FROM suppliers WHERE id = ?1", params![input.supplier_id], |r| r.get(0)).map_err(|e| format!("Supplier required for credit purchase: {}", e))?;
-        tx.execute("UPDATE suppliers SET current_balance = current_balance + ?1 WHERE id = ?2", params![grand_total, input.supplier_id]).map_err(|e| e.to_string())?;
+        let sid = supp_id.ok_or_else(|| "Supplier required for credit purchase".to_string())?;
+        let supp_ledger_id: String = tx.query_row("SELECT ledger_account_id FROM suppliers WHERE id = ?1", params![sid], |r| r.get(0)).map_err(|e| format!("Supplier required for credit purchase: {}", e))?;
+        tx.execute("UPDATE suppliers SET current_balance = current_balance + ?1 WHERE id = ?2", params![grand_total, sid]).map_err(|e| e.to_string())?;
         supp_ledger_id
     } else {
         cash_acc_id
@@ -577,7 +593,7 @@ pub fn post_purchase(state: State<'_, AppState>, input: CreatePurchaseInput) -> 
         "Purchase",
         &input.invoice_number,
         &input.invoice_date,
-        Some(&format!("Purchase {} from {:?}", input.invoice_number, input.supplier_id)),
+        Some(&format!("Purchase {} from {:?}", input.invoice_number, supp_id)),
         Some(&purchase_id),
         &journal_lines,
     )?;
@@ -706,6 +722,329 @@ pub fn get_trial_balance(state: State<'_, AppState>, company_id: String) -> Resu
     Ok(tb)
 }
 
+// =========================================================================
+// USER MANAGEMENT & AUTHENTICATION COMMANDS
+// =========================================================================
+
+fn hash_password(password: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+#[tauri::command]
+pub fn login_user(state: State<'_, AppState>, input: LoginInput) -> Result<LoginResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let hash = hash_password(&input.password);
+    let now = Local::now().to_rfc3339();
+
+    let user_opt: Option<(String, String, String, String, i64, String, String)> = conn.query_row(
+        "SELECT id, username, display_name, role_id, is_active, created_at, updated_at
+         FROM users WHERE username = ?1 AND password_hash = ?2",
+        params![input.username.trim(), hash],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+    ).ok();
+
+    match user_opt {
+        Some((id, username, display_name, role_id, is_active, created_at, updated_at)) => {
+            if is_active == 0 {
+                return Ok(LoginResult {
+                    success: false,
+                    user: None,
+                    message: "Account is deactivated. Contact your administrator.".to_string(),
+                });
+            }
+
+            // Update last_login_at
+            let _ = conn.execute(
+                "UPDATE users SET last_login_at = ?1 WHERE id = ?2",
+                params![now, id],
+            );
+
+            // Audit login
+            let audit_id = Uuid::new_v4().to_string();
+            let _ = conn.execute(
+                "INSERT INTO audit_logs (id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp)
+                 VALUES (?1, ?2, ?3, 'LOGIN', 'USER', ?2, 'User logged in successfully', ?4)",
+                params![audit_id, id, username, now],
+            );
+
+            Ok(LoginResult {
+                success: true,
+                user: Some(User {
+                    id,
+                    username,
+                    display_name,
+                    role_id,
+                    is_active: true,
+                    created_at,
+                    updated_at,
+                    last_login_at: Some(now),
+                }),
+                message: "Login successful".to_string(),
+            })
+        }
+        None => Ok(LoginResult {
+            success: false,
+            user: None,
+            message: "Invalid username or password".to_string(),
+        }),
+    }
+}
+
+#[tauri::command]
+pub fn list_users(state: State<'_, AppState>) -> Result<Vec<User>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, role_id, is_active, created_at, updated_at, last_login_at
+         FROM users ORDER BY created_at ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |r| {
+        let is_act: i64 = r.get(4)?;
+        Ok(User {
+            id: r.get(0)?,
+            username: r.get(1)?,
+            display_name: r.get(2)?,
+            role_id: r.get(3)?,
+            is_active: is_act != 0,
+            created_at: r.get(5)?,
+            updated_at: r.get(6)?,
+            last_login_at: r.get(7)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut users = Vec::new();
+    for u in rows {
+        users.push(u.map_err(|e| e.to_string())?);
+    }
+    Ok(users)
+}
+
+#[tauri::command]
+pub fn get_user_counts(state: State<'_, AppState>) -> Result<UserCounts, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let total: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap_or(0);
+    let active: i64 = conn.query_row("SELECT COUNT(*) FROM users WHERE is_active = 1", [], |r| r.get(0)).unwrap_or(0);
+    let inactive: i64 = conn.query_row("SELECT COUNT(*) FROM users WHERE is_active = 0", [], |r| r.get(0)).unwrap_or(0);
+
+    Ok(UserCounts {
+        total_users: total,
+        active_users: active,
+        inactive_users: inactive,
+    })
+}
+
+#[tauri::command]
+pub fn create_user(
+    state: State<'_, AppState>,
+    actor_user_id: Option<String>,
+    actor_name: Option<String>,
+    input: CreateUserInput,
+) -> Result<User, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = Local::now().to_rfc3339();
+    let new_id = Uuid::new_v4().to_string();
+    let pass_hash = hash_password(&input.password);
+    let trimmed_user = input.username.trim().to_lowercase();
+
+    if trimmed_user.is_empty() {
+        return Err("Username cannot be empty".to_string());
+    }
+
+    conn.execute(
+        "INSERT INTO users (id, username, display_name, password_hash, role_id, is_active, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)",
+        params![new_id, trimmed_user, input.display_name.trim(), pass_hash, input.role_id, now],
+    ).map_err(|e| format!("Failed to create user: {}", e))?;
+
+    // Record audit
+    let audit_id = Uuid::new_v4().to_string();
+    let actor_snapshot = actor_name.unwrap_or_else(|| "ADMIN".to_string());
+    let _ = conn.execute(
+        "INSERT INTO audit_logs (id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp)
+         VALUES (?1, ?2, ?3, 'CREATE_USER', 'USER', ?4, ?5, ?6)",
+        params![
+            audit_id,
+            actor_user_id,
+            actor_snapshot,
+            new_id,
+            format!("Created user '{}' with role '{}'", trimmed_user, input.role_id),
+            now
+        ],
+    );
+
+    Ok(User {
+        id: new_id,
+        username: trimmed_user,
+        display_name: input.display_name,
+        role_id: input.role_id,
+        is_active: true,
+        created_at: now.clone(),
+        updated_at: now,
+        last_login_at: None,
+    })
+}
+
+#[tauri::command]
+pub fn update_user_status(
+    state: State<'_, AppState>,
+    actor_user_id: Option<String>,
+    actor_name: Option<String>,
+    user_id: String,
+    is_active: bool,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = Local::now().to_rfc3339();
+    let act_val = if is_active { 1 } else { 0 };
+
+    conn.execute(
+        "UPDATE users SET is_active = ?1, updated_at = ?2 WHERE id = ?3",
+        params![act_val, now, user_id],
+    ).map_err(|e| e.to_string())?;
+
+    let action_str = if is_active { "REACTIVATE_USER" } else { "DEACTIVATE_USER" };
+    let desc = format!("User status changed to {}", if is_active { "Active" } else { "Deactivated" });
+    let audit_id = Uuid::new_v4().to_string();
+    let actor_snapshot = actor_name.unwrap_or_else(|| "ADMIN".to_string());
+
+    let _ = conn.execute(
+        "INSERT INTO audit_logs (id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp)
+         VALUES (?1, ?2, ?3, ?4, 'USER', ?5, ?6, ?7)",
+        params![audit_id, actor_user_id, actor_snapshot, action_str, user_id, desc, now],
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reset_user_password(
+    state: State<'_, AppState>,
+    actor_user_id: Option<String>,
+    actor_name: Option<String>,
+    user_id: String,
+    new_password: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = Local::now().to_rfc3339();
+    let hash = hash_password(&new_password);
+
+    conn.execute(
+        "UPDATE users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3",
+        params![hash, now, user_id],
+    ).map_err(|e| e.to_string())?;
+
+    let audit_id = Uuid::new_v4().to_string();
+    let actor_snapshot = actor_name.unwrap_or_else(|| "ADMIN".to_string());
+    let _ = conn.execute(
+        "INSERT INTO audit_logs (id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp)
+         VALUES (?1, ?2, ?3, 'RESET_PASSWORD', 'USER', ?4, 'User password reset', ?5)",
+        params![audit_id, actor_user_id, actor_snapshot, user_id, now],
+    );
+
+    Ok(())
+}
+
+// =========================================================================
+// AUDIT LOGGING & PRINT AUDIT COMMANDS
+// =========================================================================
+
+#[tauri::command]
+pub fn list_audit_logs(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<AuditLog>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let lim = limit.unwrap_or(50);
+    let mut stmt = conn.prepare(
+        "SELECT id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp, metadata
+         FROM audit_logs ORDER BY timestamp DESC LIMIT ?1"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![lim], |r| {
+        Ok(AuditLog {
+            id: r.get(0)?,
+            user_id: r.get(1)?,
+            username_snapshot: r.get(2)?,
+            action: r.get(3)?,
+            entity_type: r.get(4)?,
+            entity_id: r.get(5)?,
+            description: r.get(6)?,
+            timestamp: r.get(7)?,
+            metadata: r.get(8)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut logs = Vec::new();
+    for l in rows {
+        logs.push(l.map_err(|e| e.to_string())?);
+    }
+    Ok(logs)
+}
+
+#[tauri::command]
+pub fn record_print_audit(state: State<'_, AppState>, input: RecordPrintInput) -> Result<String, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let audit_id = Uuid::new_v4().to_string();
+    let now = Local::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO invoice_print_audit (id, invoice_id, invoice_number, user_id, username_snapshot, printed_at, print_type, printer_name, document_type, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'COMPLETED')",
+        params![
+            audit_id,
+            input.invoice_id,
+            input.invoice_number,
+            input.user_id,
+            input.username_snapshot,
+            now,
+            input.print_type,
+            input.printer_name,
+            input.document_type
+        ],
+    ).map_err(|e| format!("Failed to record print audit: {}", e))?;
+
+    // Also write into general audit_logs for unified timeline
+    let desc = format!("Invoice {} {} ({})", input.invoice_number, input.print_type, input.printer_name.as_deref().unwrap_or("Default"));
+    let gen_id = Uuid::new_v4().to_string();
+    let _ = conn.execute(
+        "INSERT INTO audit_logs (id, user_id, username_snapshot, action, entity_type, entity_id, description, timestamp)
+         VALUES (?1, ?2, ?3, ?4, 'INVOICE', ?5, ?6, ?7)",
+        params![gen_id, input.user_id, input.username_snapshot, format!("PRINT_{}", input.print_type), input.invoice_id, desc, now],
+    );
+
+    Ok(audit_id)
+}
+
+#[tauri::command]
+pub fn list_print_audits(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<InvoicePrintAudit>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let lim = limit.unwrap_or(50);
+    let mut stmt = conn.prepare(
+        "SELECT id, invoice_id, invoice_number, user_id, username_snapshot, printed_at, print_type, printer_name, document_type, status
+         FROM invoice_print_audit ORDER BY printed_at DESC LIMIT ?1"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![lim], |r| {
+        Ok(InvoicePrintAudit {
+            id: r.get(0)?,
+            invoice_id: r.get(1)?,
+            invoice_number: r.get(2)?,
+            user_id: r.get(3)?,
+            username_snapshot: r.get(4)?,
+            printed_at: r.get(5)?,
+            print_type: r.get(6)?,
+            printer_name: r.get(7)?,
+            document_type: r.get(8)?,
+            status: r.get(9)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut list = Vec::new();
+    for item in rows {
+        list.push(item.map_err(|e| e.to_string())?);
+    }
+    Ok(list)
+}
+
 trait EmptyHelper {
     fn if_empty(self, fallback: &str) -> String;
 }
@@ -719,3 +1058,4 @@ impl EmptyHelper for String {
         }
     }
 }
+

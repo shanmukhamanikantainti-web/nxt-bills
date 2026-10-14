@@ -81,7 +81,7 @@ mod tests {
         let portable_mgr = PathManager::init_with_mode(temp_usb_dir.clone(), true);
         assert_eq!(portable_mgr.mode(), &DeploymentMode::Portable);
         assert_eq!(portable_mgr.data_directory(), temp_usb_dir.join("Data"));
-        assert_eq!(portable_mgr.database_path(), temp_usb_dir.join("Data").join("Database").join("company.sqlite"));
+        assert_eq!(portable_mgr.database_path(), temp_usb_dir.join("Data").join("Database").join("nxt_bills.sqlite"));
 
         // 2. Test Installed Mode
         let app_dir = PathBuf::from("C:\\Program Files\\SDL_ACC");
@@ -249,7 +249,6 @@ mod tests {
         // 3. Import package onto Computer B
         let mgr_b = PathManager::init_with_mode(comp_b_dir.clone(), true);
         let mut conn_b = Connection::open(&mgr_b.database_path()).unwrap();
-        db::run_migrations(&conn_b).unwrap();
 
         let import_res = TransferService::import_package(&mut conn_b, &mgr_b, &usb_dir).unwrap();
         assert!(import_res.success);
@@ -267,5 +266,75 @@ mod tests {
         let _ = std::fs::remove_dir_all(&comp_a_dir);
         let _ = std::fs::remove_dir_all(&usb_dir);
         let _ = std::fs::remove_dir_all(&comp_b_dir);
+    }
+
+    #[test]
+    fn test_sales_invoice_posting_foreign_key_integrity() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        db::run_migrations(&conn).unwrap();
+
+        // 1. Create company
+        conn.execute(
+            "INSERT INTO companies (id, name, currency_symbol, currency_code, created_at, updated_at) 
+             VALUES ('comp_fk', 'FK Test Company', '₹', 'INR', '2026-10-13', '2026-10-13')",
+            [],
+        ).unwrap();
+        accounting::seed_company_defaults(&conn, "comp_fk").unwrap();
+
+        // 2. Create customer with sub-ledger
+        conn.execute(
+            "INSERT INTO ledger_accounts (id, company_id, code, name, account_type, is_system, opening_balance, current_balance, created_at)
+             VALUES ('cust_ledger_1', 'comp_fk', 'CUST-001', 'Test Customer', 'Asset', 0, 0, 0, '2026-10-13')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO customers (id, company_id, ledger_account_id, name, code, is_active, created_at)
+             VALUES ('cust_1', 'comp_fk', 'cust_ledger_1', 'Test Customer', 'C01', 1, '2026-10-13')",
+            [],
+        ).unwrap();
+
+        // 3. Create product with stock
+        conn.execute(
+            "INSERT INTO products (id, company_id, name, code, purchase_price, selling_price, current_stock, reorder_level, is_active, created_at)
+             VALUES ('prod_1', 'comp_fk', 'Test Product', 'P01', 5000, 7500, 50.0, 5.0, 1, '2026-10-13')",
+            [],
+        ).unwrap();
+
+        // 4. Execute post_sale transaction with header inserted before items
+        let tx = conn.transaction().unwrap();
+        let sale_id = uuid::Uuid::new_v4().to_string();
+
+        // Insert header first
+        tx.execute(
+            "INSERT INTO sales (id, company_id, invoice_number, invoice_date, customer_id, payment_mode, subtotal, discount_total, tax_total, grand_total, status, created_at)
+             VALUES (?1, 'comp_fk', 'INV-00001', '2026-10-13', 'cust_1', 'Credit', 7500, 0, 1350, 8850, 'POSTED', '2026-10-13')",
+            rusqlite::params![sale_id],
+        ).unwrap();
+
+        // Insert line item (foreign key must succeed because header is present)
+        let line_id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO sales_items (id, sale_id, product_id, quantity, rate, discount, tax_rate_bps, tax_amount, total_amount)
+             VALUES (?1, ?2, 'prod_1', 1.0, 7500, 0, 1800, 1350, 8850)",
+            rusqlite::params![line_id, sale_id],
+        ).unwrap();
+
+        // Record stock movement
+        inventory::record_stock_movement(
+            &tx, "comp_fk", "prod_1", "SALE", "SALES_INVOICE", &sale_id, "2026-10-13", 0.0, 1.0, 7500, None
+        ).unwrap();
+
+        tx.commit().unwrap();
+
+        // Verify stock decreased from 50 to 49
+        let remaining_stock: f64 = conn.query_row(
+            "SELECT current_stock FROM products WHERE id = 'prod_1'", [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(remaining_stock, 49.0);
+
+        // Verify sales record exists
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM sales_items WHERE sale_id = ?1", rusqlite::params![sale_id], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
     }
 }

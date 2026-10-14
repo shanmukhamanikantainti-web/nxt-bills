@@ -274,6 +274,71 @@ export interface CreatePurchaseInput {
   items: PurchaseItemInput[];
 }
 
+export interface User {
+  id: string;
+  username: string;
+  display_name: string;
+  role_id: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string;
+}
+
+export interface CreateUserInput {
+  username: string;
+  display_name: string;
+  password: string;
+  role_id: string;
+}
+
+export interface LoginResult {
+  success: boolean;
+  user?: User;
+  message: string;
+}
+
+export interface UserCounts {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+}
+
+export interface AuditLog {
+  id: string;
+  user_id?: string;
+  username_snapshot: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  description: string;
+  timestamp: string;
+  metadata?: string;
+}
+
+export interface InvoicePrintAudit {
+  id: string;
+  invoice_id: string;
+  invoice_number: string;
+  user_id?: string;
+  username_snapshot: string;
+  printed_at: string;
+  print_type: string;
+  printer_name?: string;
+  document_type: string;
+  status: string;
+}
+
+export interface RecordPrintInput {
+  invoice_id: string;
+  invoice_number: string;
+  user_id?: string;
+  username_snapshot: string;
+  print_type: string;
+  printer_name?: string;
+  document_type: string;
+}
+
 // Format minor unit (paise) to display currency string
 export function formatCurrency(amountMinor: number, symbol = "₹"): string {
   const val = (amountMinor / 100).toFixed(2);
@@ -832,4 +897,127 @@ export const api = {
       },
     ];
   },
+
+  // User Management & RBAC
+  loginUser: async (input: { username: string; password: string }): Promise<LoginResult> => {
+    if (isTauriEnvironment()) {
+      return invoke<LoginResult>("login_user", { input });
+    }
+    if (input.username === "admin" && input.password === "admin123") {
+      const mockUser: User = {
+        id: "usr-admin",
+        username: "admin",
+        display_name: "System Administrator",
+        role_id: "ADMIN",
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+      };
+      return { success: true, user: mockUser, message: "Login successful" };
+    }
+    return { success: false, message: "Invalid credentials" };
+  },
+
+  listUsers: async (): Promise<User[]> => {
+    if (isTauriEnvironment()) {
+      return invoke<User[]>("list_users");
+    }
+    return [
+      {
+        id: "usr-admin",
+        username: "admin",
+        display_name: "System Administrator",
+        role_id: "ADMIN",
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+  },
+
+  getUserCounts: async (): Promise<UserCounts> => {
+    if (isTauriEnvironment()) {
+      return invoke<UserCounts>("get_user_counts");
+    }
+    return { total_users: 1, active_users: 1, inactive_users: 0 };
+  },
+
+  createUser: async (
+    actorUserId: string | null,
+    actorName: string | null,
+    input: CreateUserInput
+  ): Promise<User> => {
+    if (isTauriEnvironment()) {
+      return invoke<User>("create_user", {
+        actorUserId,
+        actorName,
+        input,
+      });
+    }
+    return {
+      id: `usr-${Date.now()}`,
+      username: input.username,
+      display_name: input.display_name,
+      role_id: input.role_id,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  },
+
+  updateUserStatus: async (
+    actorUserId: string | null,
+    actorName: string | null,
+    userId: string,
+    isActive: boolean
+  ): Promise<void> => {
+    if (isTauriEnvironment()) {
+      return invoke<void>("update_user_status", {
+        actorUserId,
+        actorName,
+        userId,
+        isActive,
+      });
+    }
+  },
+
+  resetUserPassword: async (
+    actorUserId: string | null,
+    actorName: string | null,
+    userId: string,
+    newPassword: string
+  ): Promise<void> => {
+    if (isTauriEnvironment()) {
+      return invoke<void>("reset_user_password", {
+        actorUserId,
+        actorName,
+        userId,
+        newPassword,
+      });
+    }
+  },
+
+  // Audit Logs & Print Audit
+  listAuditLogs: async (limit = 50): Promise<AuditLog[]> => {
+    if (isTauriEnvironment()) {
+      return invoke<AuditLog[]>("list_audit_logs", { limit });
+    }
+    return [];
+  },
+
+  recordPrintAudit: async (input: RecordPrintInput): Promise<string> => {
+    if (isTauriEnvironment()) {
+      return invoke<string>("record_print_audit", { input });
+    }
+    return `audit-print-${Date.now()}`;
+  },
+
+  listPrintAudits: async (limit = 50): Promise<InvoicePrintAudit[]> => {
+    if (isTauriEnvironment()) {
+      return invoke<InvoicePrintAudit[]>("list_print_audits", { limit });
+    }
+    return [];
+  },
 };
+

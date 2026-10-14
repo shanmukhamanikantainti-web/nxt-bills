@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "SDL_ACC",
-  "version": "1.0.0",
-  "identifier": "com.sdlacc.desktop",
+  "productName": "NXT-BILLS",
+  "version": "2.0.0",
+  "identifier": "com.nxtbills.blackpeak",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "SDL ACC - Offline Desktop Accounting",
+        "title": "NXT-BILLS — Black Peak Studio",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
@@ -29,7 +29,8 @@
     "active": true,
     "targets": ["nsis"],
     "resources": [
-      "WebView2Loader.dll"
+      "WebView2Loader.dll",
+      "libunwind.dll"
     ],
     "icon": [
       "icons/32x32.png",

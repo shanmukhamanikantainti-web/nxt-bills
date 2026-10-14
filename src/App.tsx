@@ -28,7 +28,14 @@ import {
   ZoomOut,
   Maximize2,
   RefreshCw,
-  FolderOpen
+  FolderOpen,
+  UserCheck,
+  Key,
+  Lock,
+  History,
+  FileCheck2,
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 import { 
   api, 
@@ -41,7 +48,11 @@ import {
   StorageInfo, 
   formatCurrency, 
   ImportSummaryReport, 
-  ValidationResult 
+  ValidationResult,
+  User,
+  UserCounts,
+  AuditLog,
+  InvoicePrintAudit
 } from './services/api';
 import { 
   InvoicePrintDocument, 
@@ -65,8 +76,27 @@ interface BillItemRow {
 export default function App() {
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'sales' | 'purchases' | 'inventory' | 'customers' | 'suppliers' | 'ledger' | 'transfer' | 'legacy' | 'settings' | 'business_profile'
-  >('sales');
+    'dashboard' | 'sales' | 'purchases' | 'inventory' | 'customers' | 'suppliers' | 'ledger' | 'transfer' | 'legacy' | 'settings' | 'business_profile' | 'users' | 'audits' | 'print_audits'
+  >('dashboard');
+
+  // Authentication & RBAC state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loginUsername, setLoginUsername] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [userCounts, setUserCounts] = useState<UserCounts>({ total_users: 1, active_users: 1, inactive_users: 0 });
+  const [usersList, setUsersList] = useState<User[]>([]);
+  const [auditList, setAuditList] = useState<AuditLog[]>([]);
+  const [printAuditList, setPrintAuditList] = useState<InvoicePrintAudit[]>([]);
+
+  // User Management Modal states
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState('BILLING_OPERATOR');
+  const [passwordResetModalUser, setPasswordResetModalUser] = useState<User | null>(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
 
   // Core accounting entities
   const [company, setCompany] = useState<Company | null>(null);
@@ -86,15 +116,15 @@ export default function App() {
   // -------------------------------------------------------------
   // SALES VOUCHER STATE
   // -------------------------------------------------------------
-  const [invoiceNo, setInvoiceNo] = useState('DA/2026-27/000001');
+  const [invoiceNo, setInvoiceNo] = useState('INV/2026-27/000001');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'Bank' | 'Credit'>('Credit');
-  const [placeOfSupply, setPlaceOfSupply] = useState('33-Tamil Nadu');
-  const [employeeName, setEmployeeName] = useState('S. Ravisankar');
-  const [ackNo, setAckNo] = useState('112415896321458');
-  const [ackDate, setAckDate] = useState('13/10/2026 11:20 AM');
-  const [irnNo, setIrnNo] = useState('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  const [placeOfSupply, setPlaceOfSupply] = useState('');
+  const [employeeName, setEmployeeName] = useState('Staff');
+  const [ackNo, setAckNo] = useState('');
+  const [ackDate, setAckDate] = useState('');
+  const [irnNo, setIrnNo] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
   const [narration, setNarration] = useState('');
 
@@ -386,18 +416,26 @@ export default function App() {
 
   const refreshCompanyData = async (compId: string) => {
     try {
-      const [m, c, s, p, tb] = await Promise.all([
+      const [m, c, s, p, tb, uc, ulist, audits, pAudits] = await Promise.all([
         api.getDashboardMetrics(compId),
         api.listCustomers(compId),
         api.listSuppliers(compId),
         api.listProducts(compId),
-        api.getTrialBalance(compId)
+        api.getTrialBalance(compId),
+        api.getUserCounts(),
+        api.listUsers(),
+        api.listAuditLogs(30),
+        api.listPrintAudits(30)
       ]);
       setMetrics(m);
       setCustomers(c);
       setSuppliers(s);
       setProducts(p);
       setTrialBalance(tb);
+      setUserCounts(uc);
+      setUsersList(ulist);
+      setAuditList(audits);
+      setPrintAuditList(pAudits);
 
       // Auto-select first customer if none selected
       if (c.length > 0 && !selectedCustomerId) {
@@ -577,20 +615,20 @@ export default function App() {
       paymentMode: paymentMode,
       employeeName: employeeName,
       company: {
-        legalName: company?.name || 'SRI DHANALAKSHMI AGENCIES',
-        tradeName: company?.trade_name || company?.name || 'SRI DHANALAKSHMI AGENCIES',
-        gstin: company?.tax_number || '33AABCS1429B1Z',
-        pan: company?.pan || 'AABCS1429B',
-        addressLine1: company?.address_line1 || '8/12, Market Feeder Road',
-        addressLine2: company?.address_line2 || 'Near Old Bus Stand',
-        city: company?.city || 'Tiruppur',
-        state: company?.state || 'Tamil Nadu',
-        stateCode: company?.state_code || '33',
-        postalCode: company?.postal_code || '641601',
-        phone: company?.phone || '+91 94432 10987',
-        email: company?.email || 'sdlagencies@gmail.com',
-        website: company?.website || 'www.dhanalakshmiagencies.com',
-        accentColor: company?.accent_color || '#D4121C',
+        legalName: company?.name || 'BLACK PEAK STUDIO',
+        tradeName: company?.trade_name || company?.name || 'BLACK PEAK STUDIO',
+        gstin: company?.tax_number || '',
+        pan: company?.pan || '',
+        addressLine1: company?.address_line1 || '',
+        addressLine2: company?.address_line2 || '',
+        city: company?.city || '',
+        state: company?.state || '',
+        stateCode: company?.state_code || '',
+        postalCode: company?.postal_code || '',
+        phone: company?.phone || '',
+        email: company?.email || '',
+        website: company?.website || '',
+        accentColor: company?.accent_color || '#102A43',
       },
       customer: {
         name: cust?.name || 'CASH SALE CUSTOMER',
@@ -794,6 +832,86 @@ export default function App() {
     }
   };
 
+  // User Management Handlers
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUsername || !newPassword || !newDisplayName) {
+      showNotification('Please fill in username, display name, and password', true);
+      return;
+    }
+    try {
+      const created = await api.createUser({
+        username: newUsername,
+        display_name: newDisplayName,
+        password: newPassword,
+        role: newRole,
+      });
+      showNotification(`User '${created.username}' created successfully.`);
+      setShowAddUserModal(false);
+      setNewUsername('');
+      setNewDisplayName('');
+      setNewPassword('');
+      setNewRole('BILLING_OPERATOR');
+      if (company?.id) await refreshCompanyData(company.id);
+    } catch (e: any) {
+      showNotification(`Failed to create user: ${e.toString()}`, true);
+    }
+  };
+
+  const handleToggleUserStatus = async (user: User) => {
+    if (user.username === 'admin' && user.is_active) {
+      showNotification('Primary administrator cannot be deactivated', true);
+      return;
+    }
+    try {
+      await api.updateUserStatus(user.id, !user.is_active);
+      showNotification(`User '${user.username}' is now ${!user.is_active ? 'Active' : 'Inactive'}.`);
+      if (company?.id) await refreshCompanyData(company.id);
+    } catch (e: any) {
+      showNotification(`Failed to update status: ${e.toString()}`, true);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordResetModalUser || !resetNewPassword) return;
+    try {
+      await api.resetUserPassword(passwordResetModalUser.id, resetNewPassword);
+      showNotification(`Password for '${passwordResetModalUser.username}' has been updated.`);
+      setPasswordResetModalUser(null);
+      setResetNewPassword('');
+      if (company?.id) await refreshCompanyData(company.id);
+    } catch (e: any) {
+      showNotification(`Password reset failed: ${e.toString()}`, true);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    try {
+      const res = await api.loginUser({
+        username: loginUsername,
+        password: loginPassword,
+      });
+      if (res.success && res.user) {
+        setCurrentUser(res.user);
+        showNotification(`Welcome, ${res.user.display_name}!`);
+        if (company?.id) await refreshCompanyData(company.id);
+      } else {
+        setLoginError(res.message);
+      }
+    } catch (e: any) {
+      setLoginError(e.toString());
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setLoginPassword('');
+    showNotification('Logged out successfully.');
+  };
+
   // Backup & Eject
   const handleBackup = async () => {
     try {
@@ -893,22 +1011,26 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#F4F5F7] text-[#1F2933] select-none font-sans overflow-hidden">
+    <>
+      {/* ============================================================== */}
+      {/* 1. ON-SCREEN APPLICATION UI (Hidden completely during print)  */}
+      {/* ============================================================== */}
+      <div className="flex flex-col h-screen w-screen bg-[#F4F5F7] text-[#1F2933] select-none font-sans overflow-hidden no-print">
       
       {/* ============================================================== */}
       {/* 1. TOP WINDOW BAR: TRADITIONAL ACCOUNTING APPLICATION SHELL    */}
       {/* ============================================================== */}
       <header className="h-9 bg-[#102A43] text-white flex items-center justify-between px-3 border-b border-[#0B1E30] shrink-0 text-xs shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 font-bold tracking-wider text-amber-300">
-            <Building2 className="w-4 h-4 text-amber-400" />
-            <span>SDL ACC</span>
+          <div className="flex items-center space-x-2 font-bold tracking-wider text-amber-300">
+            <img src="/logo.png" alt="NXT-BILLS Logo" className="w-5 h-5 rounded object-contain shadow-sm border border-amber-400/30" />
+            <span>NXT-BILLS</span>
           </div>
           <span className="text-slate-400">|</span>
           <div className="font-semibold text-slate-100 flex items-center space-x-2">
             <span>Company:</span>
             <span className="text-white uppercase font-bold tracking-wide">
-              {company?.name || 'SRI DHANALAKSHMI AGENCIES'}
+              {company?.name || 'BLACK PEAK STUDIO'}
             </span>
           </div>
           <span className="text-slate-400">|</span>
@@ -935,9 +1057,19 @@ export default function App() {
             <span>{currentTime}</span>
           </span>
           <span className="text-slate-400">|</span>
-          <span className="bg-emerald-800 text-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
-            Admin
-          </span>
+          <div className="flex items-center space-x-1.5">
+            <span className="bg-emerald-800 text-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase flex items-center space-x-1">
+              <UserCheck className="w-3 h-3 inline mr-0.5" />
+              <span>{currentUser?.display_name || 'Administrator'}</span>
+            </span>
+            <button
+              onClick={() => setActiveTab('users')}
+              className="text-slate-300 hover:text-amber-300 text-[10px] underline"
+              title="User Management"
+            >
+              Users ({userCounts.active_users})
+            </button>
+          </div>
         </div>
       </header>
 
@@ -971,8 +1103,9 @@ export default function App() {
         {/* COMPACT LEFT ACCOUNTING MENU */}
         <nav className="w-56 bg-[#FFFFFF] border-r border-[#C8CDD3] flex flex-col justify-between shrink-0 overflow-y-auto select-none shadow-sm">
           <div className="py-2 text-[12px]">
-            <div className="px-3 py-1 text-[10px] font-bold text-[#5B6573] uppercase tracking-wider border-b border-[#E2E8F0] mb-1">
-              Gateway of SDL ACC
+            <div className="px-3 py-1.5 text-[10px] font-bold text-[#5B6573] uppercase tracking-wider border-b border-[#E2E8F0] mb-1 flex items-center space-x-1.5">
+              <img src="/logo.png" alt="Logo" className="w-3.5 h-3.5 rounded object-contain" />
+              <span>Gateway of NXT-BILLS</span>
             </div>
 
             {/* Menu Sections */}
@@ -1054,6 +1187,42 @@ export default function App() {
               >
                 <BookOpen className="w-3.5 h-3.5 text-teal-600" />
                 <span>Trial Balance & Ledgers</span>
+              </button>
+
+              <div className="px-3 pt-2 pb-0.5 text-[10px] font-bold text-[#829AB1] uppercase tracking-wider">
+                Users & Audit Logs
+              </div>
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`w-full text-left px-3 py-1.5 flex items-center justify-between font-medium ${
+                  activeTab === 'users' ? 'bg-[#102A43] text-white font-semibold' : 'text-[#1F2933] hover:bg-[#F0F4F8]'
+                }`}
+              >
+                <span className="flex items-center space-x-2">
+                  <UserCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>User Management</span>
+                </span>
+                <span className="text-[10px] px-1 bg-emerald-100 text-emerald-800 rounded font-mono font-bold">
+                  {userCounts.active_users}
+                </span>
+              </button>
+              <button
+                onClick={() => setActiveTab('print_audits')}
+                className={`w-full text-left px-3 py-1.5 flex items-center space-x-2 font-medium ${
+                  activeTab === 'print_audits' ? 'bg-[#102A43] text-white font-semibold' : 'text-[#1F2933] hover:bg-[#F0F4F8]'
+                }`}
+              >
+                <Printer className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Invoice Print Activity</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('audits')}
+                className={`w-full text-left px-3 py-1.5 flex items-center space-x-2 font-medium ${
+                  activeTab === 'audits' ? 'bg-[#102A43] text-white font-semibold' : 'text-[#1F2933] hover:bg-[#F0F4F8]'
+                }`}
+              >
+                <History className="w-3.5 h-3.5 text-slate-600" />
+                <span>System Audit Logs</span>
               </button>
 
               <div className="px-3 pt-2 pb-0.5 text-[10px] font-bold text-[#829AB1] uppercase tracking-wider">
@@ -1562,23 +1731,84 @@ export default function App() {
               </div>
 
               {/* Compact Metrics Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
                 {[
+                  { label: "Active Users", val: userCounts.active_users * 100, isCount: true, color: "text-emerald-800" },
+                  { label: "Total Users", val: userCounts.total_users * 100, isCount: true, color: "text-blue-900" },
                   { label: "Today's Sales", val: metrics?.total_sales_today || 0, color: "text-blue-900" },
                   { label: "Month Sales", val: metrics?.total_sales_month || 0, color: "text-blue-800" },
                   { label: "Month Purchases", val: metrics?.total_purchases_month || 0, color: "text-amber-800" },
                   { label: "Receivables", val: metrics?.total_receivables || 0, color: "text-emerald-800" },
                   { label: "Payables", val: metrics?.total_payables || 0, color: "text-rose-800" },
                   { label: "Stock Value", val: metrics?.total_stock_value || 0, color: "text-indigo-800" },
-                  { label: "Low Stock Items", val: (metrics?.low_stock_count || 0) * 100, isCount: true, color: "text-slate-800" },
                 ].map((item, idx) => (
                   <div key={idx} className="bg-white border border-[#C8CDD3] p-2.5 rounded-2xs shadow-2xs">
-                    <div className="text-[10.5px] font-bold text-[#5B6573] uppercase truncate">{item.label}</div>
+                    <div className="text-[10px] font-bold text-[#5B6573] uppercase truncate">{item.label}</div>
                     <div className={`text-sm font-bold font-mono mt-1 ${item.color}`}>
                       {item.isCount ? (item.val / 100) : formatCurrency(item.val)}
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Recent Print Activity Register (Dashboard Section) */}
+              <div className="border border-[#C8CDD3] bg-white">
+                <div className="bg-[#E2E8F0] px-3 py-1.5 border-b border-[#C8CDD3] font-bold text-xs text-[#102A43] flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <Printer className="w-3.5 h-3.5 text-indigo-700" />
+                    <span>RECENT INVOICE PRINT ACTIVITY</span>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('print_audits')}
+                    className="text-[11px] text-blue-800 font-semibold hover:underline"
+                  >
+                    View All Print Logs →
+                  </button>
+                </div>
+                <table className="acc-table">
+                  <thead>
+                    <tr>
+                      <th>Date / Time</th>
+                      <th>User</th>
+                      <th>Invoice No</th>
+                      <th>Action</th>
+                      <th>Printer / Target</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printAuditList && printAuditList.length > 0 ? (
+                      printAuditList.slice(0, 5).map(pa => (
+                        <tr key={pa.id}>
+                          <td className="font-mono text-xs">{pa.printed_at}</td>
+                          <td className="font-semibold text-slate-800">{pa.username_snapshot}</td>
+                          <td className="font-mono font-bold text-blue-900">{pa.invoice_number}</td>
+                          <td>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              pa.print_type === 'PRINT' 
+                                ? 'bg-red-100 text-red-800 border border-red-300' 
+                                : 'bg-blue-100 text-blue-800 border border-blue-300'
+                            }`}>
+                              {pa.print_type === 'PRINT' ? 'PRINTED' : 'PDF EXPORT'}
+                            </span>
+                          </td>
+                          <td className="text-slate-600">{pa.printer_name || 'System Default'}</td>
+                          <td className="text-center">
+                            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-[10px] font-bold">
+                              {pa.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="text-center py-3 text-slate-500">
+                          No print activities recorded yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
 
               {/* Recent Transactions Table */}
@@ -2239,6 +2469,237 @@ export default function App() {
           )}
 
           {/* ============================================================== */}
+          {/* TAB 12: USER MANAGEMENT                                        */}
+          {/* ============================================================== */}
+          {activeTab === 'users' && (
+            <div className="p-4 space-y-3">
+              <div className="border-b border-[#C8CDD3] pb-2 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-[#102A43] uppercase">User Management & Role-Based Access</h2>
+                  <p className="text-[11px] text-[#5B6573]">Local role permissions, credential security, and user status control</p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="flex space-x-1 text-xs font-mono mr-2">
+                    <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 border border-emerald-300 font-bold rounded">
+                      ACTIVE: {userCounts.active_users}
+                    </span>
+                    <span className="bg-slate-100 text-slate-700 px-2 py-0.5 border border-slate-300 font-bold rounded">
+                      TOTAL: {userCounts.total_users}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    className="bg-[#102A43] hover:bg-[#1E3A8A] text-white px-3 py-1 text-xs font-semibold flex items-center space-x-1"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Add User</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Users Table */}
+              <div className="border border-[#C8CDD3] bg-white">
+                <table className="acc-table">
+                  <thead>
+                    <tr>
+                      <th>User ID</th>
+                      <th>Username</th>
+                      <th>Display Name</th>
+                      <th>Role</th>
+                      <th className="text-center">Status</th>
+                      <th>Created Date</th>
+                      <th>Last Login</th>
+                      <th className="text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usersList && usersList.length > 0 ? (
+                      usersList.map(u => (
+                        <tr key={u.id}>
+                          <td className="font-mono text-xs text-slate-500">{u.id}</td>
+                          <td className="font-bold text-blue-900">{u.username}</td>
+                          <td>{u.display_name}</td>
+                          <td>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 border border-slate-300">
+                              {u.role_id}
+                            </span>
+                          </td>
+                          <td className="text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              u.is_active ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-rose-100 text-rose-800 border border-rose-300'
+                            }`}>
+                              {u.is_active ? 'ACTIVE' : 'INACTIVE'}
+                            </span>
+                          </td>
+                          <td className="font-mono text-xs">{u.created_at?.slice(0, 16)}</td>
+                          <td className="font-mono text-xs">{u.last_login_at ? u.last_login_at.slice(0, 16) : 'Never'}</td>
+                          <td className="text-center">
+                            <div className="flex items-center justify-center space-x-1.5">
+                              <button
+                                onClick={() => handleToggleUserStatus(u)}
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                                  u.is_active ? 'bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
+                                }`}
+                                title={u.is_active ? 'Deactivate User' : 'Activate User'}
+                              >
+                                {u.is_active ? 'DEACTIVATE' : 'ACTIVATE'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPasswordResetModalUser(u);
+                                  setResetNewPassword('');
+                                }}
+                                className="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-800 border border-slate-300 hover:bg-slate-200"
+                                title="Reset Password"
+                              >
+                                RESET PWD
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="text-center py-4 text-slate-500">
+                          No users found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* TAB 13: INVOICE PRINT ACTIVITY SCREEN                           */}
+          {/* ============================================================== */}
+          {activeTab === 'print_audits' && (
+            <div className="p-4 space-y-3">
+              <div className="border-b border-[#C8CDD3] pb-2 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-[#102A43] uppercase">Invoice Print Activity & Audit</h2>
+                  <p className="text-[11px] text-[#5B6573]">Immutable print logs: who printed what invoice, when, and device destination</p>
+                </div>
+                <button
+                  onClick={() => company?.id && refreshCompanyData(company.id)}
+                  className="bg-white border border-[#C8CDD3] px-2 py-1 text-xs hover:bg-[#F0F4F8] flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh Log</span>
+                </button>
+              </div>
+
+              <div className="border border-[#C8CDD3] bg-white">
+                <table className="acc-table">
+                  <thead>
+                    <tr>
+                      <th>Date / Time</th>
+                      <th>User</th>
+                      <th>Invoice No</th>
+                      <th>Action</th>
+                      <th>Printer / Target</th>
+                      <th>Document</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printAuditList && printAuditList.length > 0 ? (
+                      printAuditList.map(pa => (
+                        <tr key={pa.id}>
+                          <td className="font-mono text-xs">{pa.printed_at}</td>
+                          <td className="font-semibold text-blue-900">{pa.username_snapshot}</td>
+                          <td className="font-mono font-bold">{pa.invoice_number}</td>
+                          <td>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              pa.print_type === 'PRINT' 
+                                ? 'bg-red-100 text-red-800 border border-red-300' 
+                                : 'bg-blue-100 text-blue-800 border border-blue-300'
+                            }`}>
+                              {pa.print_type === 'PRINT' ? 'PRINTED' : 'PDF EXPORT'}
+                            </span>
+                          </td>
+                          <td className="text-slate-700">{pa.printer_name || 'System Default'}</td>
+                          <td className="font-mono text-xs text-slate-500">{pa.document_type}</td>
+                          <td className="text-center">
+                            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-[10px] font-bold">
+                              {pa.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="text-center py-4 text-slate-500">
+                          No invoice print audits logged yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* TAB 14: SYSTEM AUDIT LOGS SCREEN                               */}
+          {/* ============================================================== */}
+          {activeTab === 'audits' && (
+            <div className="p-4 space-y-3">
+              <div className="border-b border-[#C8CDD3] pb-2 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-[#102A43] uppercase">System Audit Trail</h2>
+                  <p className="text-[11px] text-[#5B6573]">Append-only system security and transaction records</p>
+                </div>
+                <button
+                  onClick={() => company?.id && refreshCompanyData(company.id)}
+                  className="bg-white border border-[#C8CDD3] px-2 py-1 text-xs hover:bg-[#F0F4F8] flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh Trail</span>
+                </button>
+              </div>
+
+              <div className="border border-[#C8CDD3] bg-white">
+                <table className="acc-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Entity</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditList && auditList.length > 0 ? (
+                      auditList.map(a => (
+                        <tr key={a.id}>
+                          <td className="font-mono text-xs">{a.timestamp?.slice(0, 19)}</td>
+                          <td className="font-semibold text-blue-900">{a.username_snapshot}</td>
+                          <td>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 border border-slate-300">
+                              {a.action}
+                            </span>
+                          </td>
+                          <td className="font-mono text-xs text-slate-600">{a.entity_type} {a.entity_id ? `(${a.entity_id})` : ''}</td>
+                          <td className="text-slate-800">{a.description}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="text-center py-4 text-slate-500">
+                          No audit entries logged yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================== */}
           {/* TAB 11: STORAGE & BACKUP                                       */}
           {/* ============================================================== */}
           {activeTab === 'settings' && (
@@ -2296,7 +2757,7 @@ export default function App() {
         </div>
 
         <div className="flex items-center space-x-4 text-[#5B6573]">
-          <span>App: SDL ACC Desktop v1.0</span>
+          <span>App: NXT-BILLS v2.0 (Black Peak Studio)</span>
           <span>|</span>
           <span>Offline Native</span>
         </div>
@@ -2306,10 +2767,10 @@ export default function App() {
       {/* 4. EXACT A4 INVOICE PRINT PREVIEW MODAL                        */}
       {/* ============================================================== */}
       {showPrintModal && previewInvoiceData && (
-        <div className="fixed inset-0 z-50 bg-black/75 flex flex-col items-center justify-start overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-black/75 flex flex-col items-center justify-start overflow-hidden print-modal-overlay">
           
           {/* Modal Header Controls */}
-          <div className="w-full bg-[#102A43] text-white px-4 py-2 flex items-center justify-between border-b border-black text-xs shrink-0 shadow-md">
+          <div className="w-full bg-[#102A43] text-white px-4 py-2 flex items-center justify-between border-b border-black text-xs shrink-0 shadow-md no-print">
             <div className="flex items-center space-x-3">
               <span className="font-bold text-amber-300 tracking-wide uppercase">
                 Print Preview — Tax Invoice
@@ -2356,7 +2817,23 @@ export default function App() {
               {/* PRINT BUTTON (Triggers native window.print()) */}
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={async () => {
+                  try {
+                    await api.recordPrintAudit({
+                      invoice_id: previewInvoiceData.invoiceNumber,
+                      invoice_number: previewInvoiceData.invoiceNumber,
+                      user_id: currentUser?.id,
+                      username_snapshot: currentUser?.username || 'admin',
+                      print_type: 'PRINT',
+                      printer_name: 'System Default Printer',
+                      document_type: 'TAX_INVOICE',
+                    });
+                    if (company?.id) refreshCompanyData(company.id);
+                  } catch (e) {
+                    console.error('Audit failed', e);
+                  }
+                  window.print();
+                }}
                 className="bg-[#D4121C] hover:bg-[#B50F18] text-white px-4 py-1 text-xs font-bold rounded flex items-center space-x-1.5 shadow"
               >
                 <Printer className="w-4 h-4" />
@@ -2365,11 +2842,25 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
+                  try {
+                    await api.recordPrintAudit({
+                      invoice_id: previewInvoiceData.invoiceNumber,
+                      invoice_number: previewInvoiceData.invoiceNumber,
+                      user_id: currentUser?.id,
+                      username_snapshot: currentUser?.username || 'admin',
+                      print_type: 'PDF',
+                      printer_name: 'Microsoft Print to PDF',
+                      document_type: 'TAX_INVOICE',
+                    });
+                    if (company?.id) refreshCompanyData(company.id);
+                  } catch (e) {
+                    console.error('Audit failed', e);
+                  }
                   window.print();
                 }}
                 className="bg-white hover:bg-slate-100 text-[#102A43] px-3 py-1 text-xs font-semibold rounded flex items-center space-x-1"
-                title="Select 'Microsoft Print to PDF' in the system dialog"
+                title="Select 'Save as PDF' or 'Microsoft Print to PDF' in the system dialog"
               >
                 <span>Save PDF</span>
               </button>
@@ -2386,8 +2877,9 @@ export default function App() {
           </div>
 
           {/* Modal Preview Body (Scrollable container hosting scaled A4 document) */}
-          <div className="flex-1 w-full overflow-auto p-6 flex justify-center bg-slate-800/80">
+          <div className="flex-1 w-full overflow-auto p-6 flex justify-center bg-slate-800/80 print-modal-scroll">
             <div
+              className="print-modal-zoom-container"
               style={{
                 transform: `scale(${printZoom})`,
                 transformOrigin: 'top center',
@@ -2395,7 +2887,7 @@ export default function App() {
                 backgroundColor: '#FFFFFF',
               }}
             >
-              <InvoicePrintDocument data={previewInvoiceData} />
+              <InvoicePrintDocument data={previewInvoiceData} id="invoice-preview-screen" />
             </div>
           </div>
         </div>
@@ -2631,6 +3123,157 @@ export default function App() {
         </div>
       )}
 
-    </div>
+      {/* ============================================================== */}
+      {/* 5B. ADD USER MODAL                                             */}
+      {/* ============================================================== */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-[#102A43] shadow-2xl w-full max-w-md p-4 space-y-3 text-xs">
+            <div className="flex items-center justify-between border-b border-[#C8CDD3] pb-2">
+              <div className="flex items-center space-x-2">
+                <UserPlus className="w-4 h-4 text-blue-900" />
+                <span className="font-bold text-[#102A43] text-sm uppercase">Create New System User</span>
+              </div>
+              <button onClick={() => setShowAddUserModal(false)} className="text-slate-500 hover:text-black">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="space-y-2.5">
+              <div>
+                <label className="block text-[11px] font-bold text-[#5B6573] uppercase mb-0.5">Username *</label>
+                <input
+                  type="text"
+                  required
+                  value={newUsername}
+                  onChange={e => setNewUsername(e.target.value)}
+                  placeholder="e.g. rahul, sai"
+                  className="w-full font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5B6573] uppercase mb-0.5">Display Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newDisplayName}
+                  onChange={e => setNewDisplayName(e.target.value)}
+                  placeholder="e.g. Rahul Kumar"
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5B6573] uppercase mb-0.5">Role *</label>
+                <select
+                  value={newRole}
+                  onChange={e => setNewRole(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="ADMIN">ADMIN (Full System Access)</option>
+                  <option value="MANAGER">MANAGER (Operations & Approvals)</option>
+                  <option value="ACCOUNTANT">ACCOUNTANT (Books & Ledgers)</option>
+                  <option value="BILLING_OPERATOR">BILLING_OPERATOR (Sales Invoicing & Printing)</option>
+                  <option value="VIEWER">VIEWER (Read-Only)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#5B6573] uppercase mb-0.5">Initial Password *</label>
+                <input
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="bg-white border border-[#C8CDD3] px-3 py-1 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#102A43] hover:bg-[#1E3A8A] text-white px-4 py-1 font-bold"
+                >
+                  Create User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* 5C. RESET PASSWORD MODAL                                       */}
+      {/* ============================================================== */}
+      {passwordResetModalUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-[#102A43] shadow-2xl w-full max-w-sm p-4 space-y-3 text-xs">
+            <div className="flex items-center justify-between border-b border-[#C8CDD3] pb-2">
+              <div className="flex items-center space-x-2">
+                <Key className="w-4 h-4 text-amber-600" />
+                <span className="font-bold text-[#102A43] text-sm uppercase">Reset Password</span>
+              </div>
+              <button onClick={() => setPasswordResetModalUser(null)} className="text-slate-500 hover:text-black">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-[#5B6573]">
+              Setting a new password for user: <strong>{passwordResetModalUser.username}</strong> ({passwordResetModalUser.display_name})
+            </p>
+
+            <form onSubmit={handleResetPassword} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-[#5B6573] uppercase mb-0.5">New Password *</label>
+                <input
+                  type="password"
+                  required
+                  value={resetNewPassword}
+                  onChange={e => setResetNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  className="w-full font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setPasswordResetModalUser(null)}
+                  className="bg-white border border-[#C8CDD3] px-3 py-1 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#102A43] hover:bg-[#1E3A8A] text-white px-4 py-1 font-bold"
+                >
+                  Save Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      </div>
+
+      {/* ============================================================== */}
+      {/* 6. DEDICATED DIRECT-TO-PRINTER ELEMENT (0 margin, top: 0)     */}
+      {/* ============================================================== */}
+      {previewInvoiceData && (
+        <div id="invoice-print-root" className="print-only">
+          <InvoicePrintDocument data={previewInvoiceData} id="invoice-printable-area" />
+        </div>
+      )}
+    </>
   );
 }

@@ -106,24 +106,57 @@ impl TransferService {
         let dest_temp = package_root.join("Temp");
 
         fs::create_dir_all(&dest_app).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_app.join("resources")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_app.join("invoice-templates")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_app.join("runtime")).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_database).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_database.join("migrations")).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_docs).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("Sales")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("Purchases")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("DebitNotes")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("CreditNotes")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("Receipts")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_docs.join("Other")).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_imports).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_imports.join("Legacy")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_imports.join("Processed")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(dest_data.join("Exports")).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_backups).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_config).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_logs).map_err(|e| e.to_string())?;
         fs::create_dir_all(&dest_temp).map_err(|e| e.to_string())?;
 
-        // Copy application executable if exists in current App / exe dir
+        // Copy application executable and required runtime DLLs to App/ and package root
         let current_exe = std::env::current_exe().ok();
         if let Some(ref exe_path) = current_exe {
             if exe_path.exists() {
                 let _ = fs::copy(exe_path, dest_app.join("SDL_ACC.exe"));
+                let _ = fs::copy(exe_path, package_root.join("SDL_ACC.exe"));
+
+                // Copy runtime dependencies (WebView2Loader.dll and libunwind.dll)
+                if let Some(exe_dir) = exe_path.parent() {
+                    for dll_name in &["WebView2Loader.dll", "libunwind.dll"] {
+                        let candidate_dirs = [
+                            exe_dir.to_path_buf(),
+                            exe_dir.join("App"),
+                            exe_dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| exe_dir.to_path_buf()),
+                        ];
+                        for cdir in &candidate_dirs {
+                            let src_dll = cdir.join(dll_name);
+                            if src_dll.exists() {
+                                let _ = fs::copy(&src_dll, dest_app.join(dll_name));
+                                let _ = fs::copy(&src_dll, package_root.join(dll_name));
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
         // Export active company database using VACUUM INTO for guaranteed consistency
-        let dest_db_file = dest_database.join("company.sqlite");
+        let dest_db_file = dest_database.join("nxt_bills.sqlite");
         if dest_db_file.exists() {
             let _ = fs::remove_file(&dest_db_file);
         }
@@ -136,19 +169,49 @@ impl TransferService {
 
         // Copy Config files & write portable.flag
         fs::write(dest_config.join("portable.flag"), "SDL_ACC_PORTABLE_MODE=1").map_err(|e| e.to_string())?;
+        fs::write(package_root.join("portable.flag"), "SDL_ACC_PORTABLE_MODE=1").map_err(|e| e.to_string())?;
         fs::write(
             dest_config.join("application.json"),
             serde_json::to_string_pretty(&serde_json::json!({
                 "mode": "Portable",
                 "app": "SDL ACC",
-                "version": "1.0.0"
+                "version": "1.0.0",
+                "environment": "Client Production",
+                "standalone": true,
+                "dynamic_path_resolution": true
+            })).unwrap(),
+        ).map_err(|e| e.to_string())?;
+        fs::write(
+            dest_config.join("company.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "legal_name": "SRI DHANALAKSHMI AGENCIES",
+                "trade_name": "Sri Dhanalakshmi Agencies",
+                "gstin": "33AABCS1429B1Z1",
+                "pan": "AABCS1429B",
+                "state": "Tamil Nadu",
+                "state_code": "33",
+                "city": "Tiruppur",
+                "currency_symbol": "₹",
+                "currency_code": "INR"
+            })).unwrap(),
+        ).map_err(|e| e.to_string())?;
+        fs::write(
+            dest_config.join("invoice.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "default_series_prefix": "DA/2026-27/",
+                "default_counter": 1,
+                "financial_year": "2026-27",
+                "paper_size": "A4",
+                "orientation": "Portrait",
+                "template": "dhanalakshmi_tax_invoice",
+                "accent_color": "#D4121C"
             })).unwrap(),
         ).map_err(|e| e.to_string())?;
 
         // Write user README.txt and VERSION.txt
         fs::write(
             package_root.join("README.txt"),
-            "SDL ACC Portable USB Package\nLaunch App/SDL_ACC.exe to operate without host dependencies.\n",
+            "==============================================================================\nSDL ACC — Sri Dhanalakshmi Agencies Portable Accounting Deployment\n==============================================================================\n\nPORTABLE CLIENT INSTRUCTIONS:\n1. This directory is 100% self-contained. It requires no installation, no internet,\n   no Node.js, and no external runtime.\n2. To launch, double-click either:\n     - SDL_ACC.exe (in this root directory), OR\n     - App\\SDL_ACC.exe\n3. All data, SQLite databases, documents, and backups are stored dynamically inside:\n     - Data\\Database\\company.sqlite\n     - Data\\Documents\\\n4. You can transfer this entire folder onto a USB pendrive or copy it to any Windows PC.\n   The system resolves all paths dynamically without breaking.\n\nSupport: Sri Dhanalakshmi Agencies Systems\nVersion: 1.0.0\n",
         ).map_err(|e| e.to_string())?;
         fs::write(package_root.join("VERSION.txt"), "SDL_ACC 1.0.0 (Schema: 1)\n").map_err(|e| e.to_string())?;
 
@@ -234,14 +297,21 @@ impl TransferService {
         checks.push(format!("Manifest parsed (App: {}, Schema: {})", manifest.app_version, manifest.schema_version));
 
         // 2. Check Database file
+        let nxt_db_path = root.join("Data").join("Database").join("nxt_bills.sqlite");
         let db_path = root.join("Data").join("Database").join("company.sqlite");
-        let fallback_db = root.join("Data").join("company.sqlite");
-        let active_db = if db_path.exists() {
+        let fallback_db = root.join("Data").join("nxt_bills.sqlite");
+        let fallback_legacy_db = root.join("Data").join("company.sqlite");
+
+        let active_db = if nxt_db_path.exists() {
+            nxt_db_path
+        } else if db_path.exists() {
             db_path
         } else if fallback_db.exists() {
             fallback_db
+        } else if fallback_legacy_db.exists() {
+            fallback_legacy_db
         } else {
-            errors.push("No SQLite database found in package (expected Data/Database/company.sqlite)".to_string());
+            errors.push("No SQLite database found in package (expected Data/Database/nxt_bills.sqlite)".to_string());
             return ValidationResult { is_valid: false, manifest: Some(manifest), checks, errors, warnings };
         };
         checks.push("Accounting database file located".to_string());
@@ -318,8 +388,12 @@ impl TransferService {
         let _ = mgr.safe_eject(conn);
 
         // 4. Source files
-        let src_db = if root.join("Data").join("Database").join("company.sqlite").exists() {
+        let src_db = if root.join("Data").join("Database").join("nxt_bills.sqlite").exists() {
+            root.join("Data").join("Database").join("nxt_bills.sqlite")
+        } else if root.join("Data").join("Database").join("company.sqlite").exists() {
             root.join("Data").join("Database").join("company.sqlite")
+        } else if root.join("Data").join("nxt_bills.sqlite").exists() {
+            root.join("Data").join("nxt_bills.sqlite")
         } else {
             root.join("Data").join("company.sqlite")
         };

@@ -1,6 +1,46 @@
+# ============================================================
+# NXT-BILLS — GITIGNORE
+# SOURCE CODE REPOSITORY ONLY
+# EXCLUDE ALL DATABASES, BINARIES, LIVE DATA & CREDENTIALS
+# ============================================================
+
+# Dependencies & Build Artefacts
 node_modules/
 dist/
+build/
 target/
 src-tauri/target/
-.env*
-*.log
+
+# Deployment & Release Binaries
+release/
+*.exe
+*.msi
+*.dll
+*.zip
+
+# Database & SQLite Storage (CRITICAL - NO LIVE/CLIENT DATA)
+Data/
+Database/
+Documents/
+Backups/
+Exports/
+Imports/
+Logs/
+Temp/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Environment & Secrets
+.env
+.env.*
+secrets/
+*.secret
+*.key
+
+# Test & Verification Scratch Dirs
+scratch/
+test_output/
+*.tmp

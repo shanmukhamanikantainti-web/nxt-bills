@@ -1,5 +1,5 @@
-mod models;
-mod db;
+pub mod models;
+pub mod db;
 mod accounting;
 mod inventory;
 mod storage;
@@ -48,7 +48,16 @@ pub fn run() {
             commands::post_sale,
             commands::post_purchase,
             commands::get_dashboard_metrics,
-            commands::get_trial_balance
+            commands::get_trial_balance,
+            commands::login_user,
+            commands::list_users,
+            commands::get_user_counts,
+            commands::create_user,
+            commands::update_user_status,
+            commands::reset_user_password,
+            commands::list_audit_logs,
+            commands::record_print_audit,
+            commands::list_print_audits
         ])
         .run(tauri::generate_context!())
         .expect("error while running SDL ACC desktop application");

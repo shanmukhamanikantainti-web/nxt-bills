@@ -250,3 +250,93 @@ pub struct TrialBalanceEntry {
     pub credit_total: i64,
     pub net_balance: i64, // positive = debit, negative = credit
 }
+
+// User & Role Management Models
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct User {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub role_id: String, // ADMIN, MANAGER, ACCOUNTANT, BILLING_OPERATOR, VIEWER
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_login_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CreateUserInput {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+    pub role_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateUserInput {
+    pub id: String,
+    pub display_name: String,
+    pub role_id: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoginInput {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoginResult {
+    pub success: bool,
+    pub user: Option<User>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserCounts {
+    pub total_users: i64,
+    pub active_users: i64,
+    pub inactive_users: i64,
+}
+
+// Audit Models
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuditLog {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub username_snapshot: String,
+    pub action: String,
+    pub entity_type: String,
+    pub entity_id: Option<String>,
+    pub description: String,
+    pub timestamp: String,
+    pub metadata: Option<String>,
+}
+
+// Invoice Print Audit Models
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InvoicePrintAudit {
+    pub id: String,
+    pub invoice_id: String,
+    pub invoice_number: String,
+    pub user_id: Option<String>,
+    pub username_snapshot: String,
+    pub printed_at: String,
+    pub print_type: String, // PRINT, PDF, PREVIEW
+    pub printer_name: Option<String>,
+    pub document_type: String, // TAX_INVOICE, BILL_OF_SUPPLY, etc.
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecordPrintInput {
+    pub invoice_id: String,
+    pub invoice_number: String,
+    pub user_id: Option<String>,
+    pub username_snapshot: String,
+    pub print_type: String,
+    pub printer_name: Option<String>,
+    pub document_type: String,
+}
+
