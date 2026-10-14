@@ -840,11 +840,11 @@ export default function App() {
       return;
     }
     try {
-      const created = await api.createUser({
+      const created = await api.createUser(currentUser?.id || null, currentUser?.username || 'admin', {
         username: newUsername,
         display_name: newDisplayName,
         password: newPassword,
-        role: newRole,
+        role_id: newRole,
       });
       showNotification(`User '${created.username}' created successfully.`);
       setShowAddUserModal(false);
@@ -864,7 +864,7 @@ export default function App() {
       return;
     }
     try {
-      await api.updateUserStatus(user.id, !user.is_active);
+      await api.updateUserStatus(currentUser?.id || null, currentUser?.username || 'admin', user.id, !user.is_active);
       showNotification(`User '${user.username}' is now ${!user.is_active ? 'Active' : 'Inactive'}.`);
       if (company?.id) await refreshCompanyData(company.id);
     } catch (e: any) {
@@ -876,7 +876,7 @@ export default function App() {
     e.preventDefault();
     if (!passwordResetModalUser || !resetNewPassword) return;
     try {
-      await api.resetUserPassword(passwordResetModalUser.id, resetNewPassword);
+      await api.resetUserPassword(currentUser?.id || null, currentUser?.username || 'admin', passwordResetModalUser.id, resetNewPassword);
       showNotification(`Password for '${passwordResetModalUser.username}' has been updated.`);
       setPasswordResetModalUser(null);
       setResetNewPassword('');
