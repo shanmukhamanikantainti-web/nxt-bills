@@ -230,10 +230,9 @@ mod tests {
         let mut conn_a = Connection::open(&mgr_a.database_path()).unwrap();
         db::run_migrations(&conn_a).unwrap();
 
-        // Insert accounting data on Computer A
+        // Update seeded company name on Computer A to test transfer
         conn_a.execute(
-            "INSERT INTO companies (id, name, currency_symbol, currency_code, created_at, updated_at)
-             VALUES ('comp_transfer', 'Transferable Corp', '₹', 'INR', '2026-10-12', '2026-10-12')",
+            "UPDATE companies SET name = 'Transferable Corp' WHERE id = 'comp-blackpeak-001'",
             [],
         ).unwrap();
 
@@ -256,7 +255,7 @@ mod tests {
         // 4. Verify Computer B now contains identical accounting records
         let verified_conn = Connection::open(&mgr_b.database_path()).unwrap();
         let comp_b_name: String = verified_conn.query_row(
-            "SELECT name FROM companies WHERE id = 'comp_transfer'",
+            "SELECT name FROM companies WHERE id = 'comp-blackpeak-001'",
             [],
             |r| r.get(0),
         ).unwrap();
